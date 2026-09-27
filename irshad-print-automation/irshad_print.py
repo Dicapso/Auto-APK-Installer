@@ -235,6 +235,31 @@ def run_diagnostics(p):
         .map(b => `[düymə] "${(b.innerText || b.value).trim()}" ${b.outerHTML.slice(0, 400)}`)""")
     for line in buttons:
         w(line)
+    # Çap düymələrinin JS kodu (bulkAction və s.) — məntiqi görmək üçün
+    snippets = page.evaluate("""async () => {
+        const keys = ['bulkAction', 'deleteAllSelected', 'data-print', "data('print')"];
+        const out = [];
+        for (const sc of document.scripts) {
+            let text = sc.textContent, src = sc.src || 'inline';
+            if (sc.src) {
+                if (!sc.src.startsWith(location.origin)) continue;
+                try { text = await (await fetch(sc.src)).text(); } catch (e) { continue; }
+            }
+            for (const k of keys) {
+                let i = text.indexOf(k), n = 0;
+                while (i >= 0 && n < 4) {
+                    out.push(`[kod ${src} :: ${k}]\n` + text.slice(Math.max(0, i - 1500), i + 2500));
+                    i = text.indexOf(k, i + 2500); n++;
+                }
+            }
+        }
+        return out; }""")
+    for sn in snippets:
+        w(sn)
+    rows = page.evaluate("""() => [...document.querySelectorAll('table input[type=checkbox]')].slice(0, 5)
+        .map(c => `[checkbox] ${c.outerHTML} checked=${c.checked} sətir=${(c.closest('tr')||{}).innerText?.slice(0,80)}`)""")
+    for line in rows:
+        w(line)
 
     def attach(pg):
         pg.on("pageerror", lambda e: w(f"[JS xətası] {e}"))
