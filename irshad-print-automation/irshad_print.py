@@ -259,6 +259,8 @@ def main():
         context.on("page", lambda pg: watch_page(pg, download_dir))
         page = context.new_page()
         page.set_default_timeout(30_000)
+        # Bundan sonra açılan hər yeni pəncərə (məs. "Yeni dizayn" çap səhifəsi) konsolda göstərilir
+        context.on("page", lambda pg: pg.once("load", lambda: print(f"  [yeni pəncərə açıldı] {pg.url}")))
 
         login(page, email, password)
         page.goto(PRINT_URL, wait_until="networkidle")
