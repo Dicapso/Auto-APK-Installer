@@ -9,14 +9,8 @@ if not exist .venv (
 echo.
 echo  1 - Excel-deki mehsullari cap ucun sec (esas)
 echo  2 - Excel-deki mehsullari siyahidan sil
-echo  3 - Diaqnostika
 echo.
-set /p MODE=Secim (1/2/3, bos = 1): 
-if "%MODE%"=="3" (
-  .venv\Scripts\python irshad_print.py - --diagnose
-  pause
-  exit /b
-)
+set /p MODE=Secim (1/2, bos = 1): 
 set FILE=%~1
 if "%FILE%"=="" set /p FILE=Excel faylini bura surukleyin ve Enter basin: 
 set FILE=%FILE:"=%

@@ -204,91 +204,6 @@ def open_real_browser(p):
             time.sleep(0.5)
 
 
-def run_diagnostics(p):
-    """Skript brauzerində "Yeni dizayn" basılanda nə baş verdiyini fayla yazır."""
-    path = HERE / f"diaqnostika_{datetime.now():%Y%m%d_%H%M%S}.txt"
-    out = open(path, "w", encoding="utf-8", buffering=1)
-
-    def w(msg):
-        out.write(f"{datetime.now():%H:%M:%S} {msg}\n")
-        print(f"  {msg}"[:200])
-
-    browser = open_real_browser(p)
-    context = browser.contexts[0]
-    page = context.pages[0] if context.pages else context.new_page()
-    if not page.url.startswith(BASE_URL):
-        page.goto(PRINT_URL, wait_until="networkidle")
-        if "/login" in page.url:
-            login(page, *get_credentials())
-            page.goto(PRINT_URL, wait_until="networkidle")
-
-    w(f"URL: {page.url}")
-    w(f"UserAgent: {page.evaluate('navigator.userAgent')}  webdriver={page.evaluate('navigator.webdriver')}")
-    for c in context.cookies(BASE_URL):  # dəyərlər yox, yalnız ad və ölçü (təhlükəsizlik üçün)
-        w(f"[cookie] {c['name']} ölçü={len(c['value'])}")
-    storage = page.evaluate("""() => {
-        const r = [];
-        for (const [name, st] of [['localStorage', localStorage], ['sessionStorage', sessionStorage]])
-            for (let i = 0; i < st.length; i++) { const k = st.key(i), v = st.getItem(k) || '';
-                r.push(`[${name}] ${k} ölçü=${v.length} :: ${v.slice(0, 300)}`); }
-        return r; }""")
-    for line in storage:
-        w(line)
-    buttons = page.evaluate("""() => [...document.querySelectorAll('button, a.btn, input[type=submit]')]
-        .filter(b => /dizayn|Çap/i.test(b.innerText || b.value || ''))
-        .map(b => `[düymə] "${(b.innerText || b.value).trim()}" ${b.outerHTML.slice(0, 400)}`)""")
-    for line in buttons:
-        w(line)
-    # Çap düymələrinin JS kodu (bulkAction və s.) — məntiqi görmək üçün
-    snippets = page.evaluate("""async () => {
-        const keys = ['bulkAction', 'deleteAllSelected', 'data-print', "data('print')"];
-        const out = [];
-        for (const sc of document.scripts) {
-            let text = sc.textContent, src = sc.src || 'inline';
-            if (sc.src) {
-                if (!sc.src.startsWith(location.origin)) continue;
-                try { text = await (await fetch(sc.src)).text(); } catch (e) { continue; }
-            }
-            for (const k of keys) {
-                let i = text.indexOf(k), n = 0;
-                while (i >= 0 && n < 4) {
-                    out.push(`[kod ${src} :: ${k}]\n` + text.slice(Math.max(0, i - 1500), i + 2500));
-                    i = text.indexOf(k, i + 2500); n++;
-                }
-            }
-        }
-        return out; }""")
-    for sn in snippets:
-        w(sn)
-    rows = page.evaluate("""() => [...document.querySelectorAll('table input[type=checkbox]')].slice(0, 5)
-        .map(c => `[checkbox] ${c.outerHTML} checked=${c.checked} sətir=${(c.closest('tr')||{}).innerText?.slice(0,80)}`)""")
-    for line in rows:
-        w(line)
-
-    def attach(pg):
-        pg.on("pageerror", lambda e: w(f"[JS xətası] {e}"))
-        pg.on("console", lambda m: w(f"[console.{m.type}] {m.text}"))
-        pg.on("dialog", lambda d: w(f"[dialoq {d.type}] {d.message}"))  # Playwright özü bağlamasın deyə yazılır
-        pg.on("request", lambda r: w(f"[sorğu] {r.method} {r.url} {(r.post_data or '')[:300]}")
-              if r.resource_type in ("document", "xhr", "fetch") else None)
-        pg.on("response", lambda r: w(f"[cavab {r.status}] {r.url}")
-              if r.request.resource_type in ("document", "xhr", "fetch") else None)
-        pg.on("requestfailed", lambda r: w(f"[sorğu alınmadı] {r.url} {r.failure}"))
-    for pg in context.pages:
-        attach(pg)
-    context.on("page", lambda pg: (w(f"[yeni pəncərə] {pg.url}"), attach(pg)))
-
-    print("\n>>> İndi brauzerdə \"Yeni dizayn\" düyməsini basın, 10 saniyə gözləyin, sonra burada Enter basın.")
-    # input() gözləyərkən hadisələr işlənsin deyə ayrı axında soruşuruq
-    import threading
-    done = threading.Event()
-    threading.Thread(target=lambda: (input(), done.set()), daemon=True).start()
-    while not done.is_set():
-        page.wait_for_timeout(300)
-    browser.close()
-    print(f"\nDiaqnostika faylı: {path}\nBu faylı göndərin.")
-
-
 def search_input(page):
     return page.locator("input[placeholder='Axtar']").first
 
@@ -365,18 +280,11 @@ def main():
                     help="Hər neçə ID-dən sonra çap üçün dayansın (0 = dayanmadan)")
     ap.add_argument("--reset", action="store_true",
                     help="Başlamazdan əvvəl skript brauzerində saytın məlumatını (çap siyahısı, giriş) sil")
-    ap.add_argument("--diagnose", action="store_true",
-                    help="Çap düyməsinin niyə işləmədiyini yoxla (diaqnostika faylı yaradır)")
     ap.add_argument("--start-from", help="Bu ID-dən başla (daxil olmaqla)")
     ap.add_argument("--dry-run", action="store_true", help="Sayta girmədən yalnız ID siyahısını göstər")
     ap.add_argument("--date", help='Endirim müddəti, məs. "28.09.2026 - 30.09.2026"')
     ap.add_argument("--timeout", type=int, default=10, help="Hər axtarış üçün gözləmə (saniyə)")
     args = ap.parse_args()
-
-    if args.diagnose:
-        with sync_playwright() as p:
-            run_diagnostics(p)
-        return
 
     ids = read_ids(args.excel, args.sheet, args.unique)
     if args.start_from:

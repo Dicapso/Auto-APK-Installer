@@ -11,7 +11,7 @@ bir-bir axtarır və hər nəticənin yaşıl **+** düyməsini basır.
    sifre
    ```
    (Yaratmasanız proqram özü soruşacaq.)
-3. Excel faylını `run.bat`-ın üzərinə sürükləyin və menyudan seçin (1 = çap üçün seç, 2 = sil, 3 = diaqnostika).
+3. Excel faylını `run.bat`-ın üzərinə sürükləyin və menyudan seçin (1 = çap üçün seç, 2 = sil).
    İlk dəfə lazımi paketlər avtomatik yüklənir.
 
 ## Əmr sətri
