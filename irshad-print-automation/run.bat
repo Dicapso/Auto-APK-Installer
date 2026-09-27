@@ -9,5 +9,6 @@ if not exist .venv (
 )
 set FILE=%~1
 if "%FILE%"=="" set /p FILE=Excel faylini bura surukleyin ve Enter basin: 
-.venv\Scripts\python irshad_print.py %FILE% %2 %3 %4 %5 %6
+set FILE=%FILE:"=%
+.venv\Scripts\python irshad_print.py "%FILE%" %2 %3 %4 %5 %6
 pause

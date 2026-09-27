@@ -15,6 +15,7 @@ Axın:
   python irshad_print.py ID.xlsx --start-from 104737         # bu ID-dən davam et
   python irshad_print.py ID.xlsx --dry-run                   # yalnız ID siyahısını göstər
   python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
+  python irshad_print.py ID.xlsx --remove                    # ID-ləri çap siyahısından sil
 
 Endirim müddəti verilməyibsə, proqram başlanğıcda soruşur (boş buraxsanız seçilmir).
 Adi Chrome açılır (ayrıca "chrome-profile" profili ilə). Bütün ID-lər əlavə
@@ -201,7 +202,7 @@ def search_input(page):
     return page.locator("input[placeholder='Axtar']").first
 
 
-def search_and_add(page, product_id, timeout_ms):
+def search_and_add(page, product_id, timeout_ms, remove=False):
     box = search_input(page)
     box.fill("")
     box.fill(product_id)
@@ -221,12 +222,24 @@ def search_and_add(page, product_id, timeout_ms):
     except PWTimeout:
         return "tapılmadı"
 
+    remove_sel = ".btn-danger, button:has(i.fa-minus), a:has(i.fa-minus)"
+    if remove:  # siyahıdan çıxar: qırmızı "−" düyməsi
+        remove_btn = row.locator(remove_sel).first
+        if not remove_btn.count():
+            return "siyahıda deyil"
+        remove_btn.click()
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(300)
+        if not page.url.startswith(PRINT_URL):
+            page.goto(PRINT_URL, wait_until="networkidle")
+        return "silindi"
+
     add_btn = row.locator(
         "a.btn-success, button.btn-success, .btn-success, button:has(i.fa-plus), a:has(i.fa-plus)"
     ).first
     if not add_btn.count():
         # Qırmızı "−" düyməsi = məhsul artıq çap siyahısındadır (siyahı serverdə saxlanılır)
-        remove_btn = row.locator(".btn-danger, button:has(i.fa-minus), a:has(i.fa-minus)")
+        remove_btn = row.locator(remove_sel)
         return "artıq siyahıdadır" if remove_btn.count() else "düymə tapılmadı"
     add_btn.click()
     page.wait_for_load_state("networkidle")
@@ -244,6 +257,8 @@ def main():
     ap.add_argument("excel", help="ID-ləri olan Excel faylı (.xlsx)")
     ap.add_argument("--sheet", action="append", help="Yalnız bu vərəq(lər) (bir neçə dəfə yazmaq olar)")
     ap.add_argument("--unique", action="store_true", help="Təkrar olunan ID-ləri bir dəfə əlavə et")
+    ap.add_argument("--remove", action="store_true",
+                    help="Əlavə etmək əvəzinə Excel-dəki ID-ləri çap siyahısından SİL (qırmızı − düyməsi)")
     ap.add_argument("--start-from", help="Bu ID-dən başla (daxil olmaqla)")
     ap.add_argument("--dry-run", action="store_true", help="Sayta girmədən yalnız ID siyahısını göstər")
     ap.add_argument("--date", help='Endirim müddəti, məs. "28.09.2026 - 30.09.2026"')
@@ -262,7 +277,7 @@ def main():
             print(f"  [{sheet}] {pid}")
         return
 
-    date_range = args.date
+    date_range = "" if args.remove else args.date
     if date_range is None:
         date_range = input("Endirim müddəti (məs. 28.09.2026 - 30.09.2026, boş = seçmə): ").strip()
     if date_range:
@@ -291,7 +306,7 @@ def main():
 
         for n, (sheet, pid) in enumerate(ids, 1):
             try:
-                result = search_and_add(page, pid, args.timeout * 1000)
+                result = search_and_add(page, pid, args.timeout * 1000, args.remove)
             except Exception as e:  # səhifə ilişibsə yenidən yüklə və davam et
                 result = f"xəta: {e.__class__.__name__}"
                 page.goto(PRINT_URL, wait_until="networkidle")

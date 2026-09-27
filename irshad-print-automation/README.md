@@ -20,6 +20,7 @@ python irshad_print.py ID.xlsx --sheet Tv      # yalnız "Tv" vərəqi
 python irshad_print.py ID.xlsx --unique        # təkrar ID-ləri bir dəfə
 python irshad_print.py ID.xlsx --start-from 104737   # yarımçıq qalıbsa davam et
 python irshad_print.py ID.xlsx --dry-run       # yalnız ID siyahısına bax
+python irshad_print.py ID.xlsx --remove        # ID-ləri çap siyahısından SİL (və ya sil.bat)
 python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
 ```
 
