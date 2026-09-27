@@ -21,6 +21,8 @@ python irshad_print.py ID.xlsx --unique        # təkrar ID-ləri bir dəfə
 python irshad_print.py ID.xlsx --start-from 104737   # yarımçıq qalıbsa davam et
 python irshad_print.py ID.xlsx --dry-run       # yalnız ID siyahısına bax
 python irshad_print.py ID.xlsx --remove        # ID-ləri çap siyahısından SİL (və ya sil.bat)
+python irshad_print.py ID.xlsx --reset         # skript brauzerindəki köhnə siyahını sıfırla (və ya sifirla.bat)
+python irshad_print.py ID.xlsx --batch 50      # hər 50 ID-dən sonra çap üçün dayan (susmaya görə 30)
 python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
 ```
 
@@ -31,3 +33,7 @@ python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müd
 profili ilə açır. Bütün ID-lər əlavə olunandan sonra skript bitir, brauzer isə açıq
 qalır — "Yeni dizayn" və s. ilə çapı orada əl ilə edin. Giriş həmin profildə yadda
 qalır; növbəti dəfə eyni brauzer pəncərəsi istifadə olunur.
+
+**Hissə-hissə:** çap siyahısı brauzerdə saxlanılır və çox böyüyəndə sayt işləmir.
+Ona görə skript susmaya görə hər 30 ID-dən sonra dayanır: çap edin, "Çap siyahısını
+təmizlə" basın, konsolda Enter basın — skript növbəti hissəyə keçir.

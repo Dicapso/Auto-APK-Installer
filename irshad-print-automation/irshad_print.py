@@ -16,6 +16,8 @@ Axın:
   python irshad_print.py ID.xlsx --dry-run                   # yalnız ID siyahısını göstər
   python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
   python irshad_print.py ID.xlsx --remove                    # ID-ləri çap siyahısından sil
+  python irshad_print.py ID.xlsx --reset                     # brauzerdəki köhnə siyahını sıfırla
+  python irshad_print.py ID.xlsx --batch 50                  # hər 50 ID-dən sonra çap üçün dayan
 
 Endirim müddəti verilməyibsə, proqram başlanğıcda soruşur (boş buraxsanız seçilmir).
 Adi Chrome açılır (ayrıca "chrome-profile" profili ilə). Bütün ID-lər əlavə
@@ -259,6 +261,10 @@ def main():
     ap.add_argument("--unique", action="store_true", help="Təkrar olunan ID-ləri bir dəfə əlavə et")
     ap.add_argument("--remove", action="store_true",
                     help="Əlavə etmək əvəzinə Excel-dəki ID-ləri çap siyahısından SİL (qırmızı − düyməsi)")
+    ap.add_argument("--batch", type=int, default=30,
+                    help="Hər neçə ID-dən sonra çap üçün dayansın (susmaya görə 30; 0 = dayanmadan)")
+    ap.add_argument("--reset", action="store_true",
+                    help="Başlamazdan əvvəl skript brauzerində saytın məlumatını (çap siyahısı, giriş) sil")
     ap.add_argument("--start-from", help="Bu ID-dən başla (daxil olmaqla)")
     ap.add_argument("--dry-run", action="store_true", help="Sayta girmədən yalnız ID siyahısını göstər")
     ap.add_argument("--date", help='Endirim müddəti, məs. "28.09.2026 - 30.09.2026"')
@@ -299,11 +305,29 @@ def main():
         accept_dialog = lambda d: d.accept()  # əlavə zamanı çıxan təsdiq pəncərələri
         page.on("dialog", accept_dialog)
 
+        if args.reset:
+            # Bu profildə sayta aid bütün məlumatı (cookie, localStorage, çap siyahısı) sil
+            cdp = context.new_cdp_session(page)
+            cdp.send("Storage.clearDataForOrigin", {"origin": BASE_URL, "storageTypes": "all"})
+            cdp.detach()
+            print("Saytın brauzerdəki məlumatı təmizləndi.")
+
         page.goto(PRINT_URL, wait_until="networkidle")
         if "/login" in page.url:  # profil əvvəldən giriş etməyibsə
             login(page, *get_credentials())
             page.goto(PRINT_URL, wait_until="networkidle")
 
+        def prepare_for_print():
+            # Axtarış filtrini təmizlə və endirim müddətini yaz
+            page.goto(PRINT_URL, wait_until="networkidle")
+            if date_range:
+                try:
+                    ok, actual = set_discount_period(page, date_range)
+                    print(f"Endirim müddəti: {actual}" + ("" if ok else f"  (gözlənilən: {date_range} — əl ilə yoxlayın!)"))
+                except Exception as e:
+                    print(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
+
+        batch = args.batch if args.batch > 0 and not args.remove else len(ids)
         for n, (sheet, pid) in enumerate(ids, 1):
             try:
                 result = search_and_add(page, pid, args.timeout * 1000, args.remove)
@@ -315,15 +339,17 @@ def main():
             f.flush()
             print(f"[{n}/{len(ids)}] {sheet} | {pid} → {result}")
 
-        # Axtarış filtrini təmizlə: səhifə təmiz halda açılsın (çap üçün)
-        page.goto(PRINT_URL, wait_until="networkidle")
+            if n % batch == 0 and n < len(ids):
+                # Siyahı çox böyüməsin: hər hissədən sonra çap et və təmizlə
+                prepare_for_print()
+                page.remove_listener("dialog", accept_dialog)
+                input(f"\n>>> {n} ID əlavə olundu. Brauzerdə çap edin, sonra \"Çap siyahısını təmizlə\" "
+                      f"basın və burada Enter basın (davam: {len(ids) - n} ID)... ")
+                page.on("dialog", accept_dialog)
+                page.goto(PRINT_URL, wait_until="networkidle")
 
-        if date_range:
-            try:
-                ok, actual = set_discount_period(page, date_range)
-                print(f"Endirim müddəti: {actual}" + ("" if ok else f"  (gözlənilən: {date_range} — əl ilə yoxlayın!)"))
-            except Exception as e:
-                print(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
+        if not args.remove:
+            prepare_for_print()
 
         page.remove_listener("dialog", accept_dialog)  # çap zamanı mesajları siz görəsiniz
         browser.close()  # yalnız əlaqəni kəsir — brauzer açıq qalır
