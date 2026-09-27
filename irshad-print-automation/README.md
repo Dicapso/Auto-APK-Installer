@@ -34,3 +34,9 @@ python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müd
 çap edir (sayt onları brauzerin yaddaşında saxlayır). Skript hər ID üçün sətrin checkbox-unu
 işarələyir və yaşıl **+** düyməsini basır. Brauzer olaraq Opera (yoxdursa Chrome, sonra Edge)
 ayrıca `chrome-profile` profili ilə açılır; skript bitəndə brauzer açıq qalır — çapı orada edin.
+
+## Kodu gizlətmək: .exe
+`build_exe.bat`-ı işə salın — `dist\IrshadCap.exe` yaranır. Başqalarına yalnız bu exe
+faylını verin (Python lazım deyil). Exe-ni iki dəfə klikləyin və ya Excel faylını onun
+üzərinə sürükləyin. `credentials.txt`, `chrome-profile` və hesabat faylları exe-nin
+yanında yaranır — bunları paylaşmayın.

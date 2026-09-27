@@ -2,3 +2,6 @@ credentials.txt
 .venv/
 netice_*.csv
 chrome-profile/
+build/
+dist/
+*.spec

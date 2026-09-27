@@ -46,7 +46,9 @@ from playwright.sync_api import sync_playwright
 BASE_URL = "https://manage.irshad.az"
 LOGIN_URL = f"{BASE_URL}/login"
 PRINT_URL = f"{BASE_URL}/print/products"
-HERE = Path(__file__).resolve().parent
+FROZEN = getattr(sys, "frozen", False)  # .exe kimi işləyir (PyInstaller)
+# .exe-də fayllar (credentials.txt, hesabat, profil) exe-nin yanında saxlanılır
+HERE = Path(sys.executable if FROZEN else __file__).resolve().parent
 ID_RE = re.compile(r"\d{3,8}")
 
 
@@ -271,7 +273,7 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="İrşad Admin çap siyahısına ID-ləri avtomatik əlavə et")
-    ap.add_argument("excel", help="ID-ləri olan Excel faylı (.xlsx)")
+    ap.add_argument("excel", nargs="?", help="ID-ləri olan Excel faylı (.xlsx)")
     ap.add_argument("--sheet", action="append", help="Yalnız bu vərəq(lər) (bir neçə dəfə yazmaq olar)")
     ap.add_argument("--unique", action="store_true", help="Təkrar olunan ID-ləri bir dəfə əlavə et")
     ap.add_argument("--remove", action="store_true",
@@ -285,6 +287,14 @@ def main():
     ap.add_argument("--date", help='Endirim müddəti, məs. "28.09.2026 - 30.09.2026"')
     ap.add_argument("--timeout", type=int, default=10, help="Hər axtarış üçün gözləmə (saniyə)")
     args = ap.parse_args()
+
+    # .exe iki dəfə kliklənib və ya üzərinə Excel sürüklənibsə — menyu göstər
+    if FROZEN and len(sys.argv) <= 2:
+        print(" 1 - Excel-dəki məhsulları çap üçün seç (əsas)")
+        print(" 2 - Excel-dəki məhsulları siyahıdan sil")
+        args.remove = input("Seçim (1/2, boş = 1): ").strip() == "2"
+    if not args.excel:
+        args.excel = input("Excel faylını bura sürükləyin və Enter basın: ").strip().strip('"')
 
     ids = read_ids(args.excel, args.sheet, args.unique)
     if args.start_from:
@@ -378,7 +388,22 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        sys.exit("\nDayandırıldı.")
+    if not FROZEN:
+        try:
+            main()
+        except KeyboardInterrupt:
+            sys.exit("\nDayandırıldı.")
+    else:
+        try:
+            main()
+        except KeyboardInterrupt:
+            print("\nDayandırıldı.")
+        except SystemExit as e:
+            if e.code not in (None, 0):
+                print(e.code)
+        except Exception as e:
+            print(f"\nXəta: {e}")
+        try:
+            input("\nBağlamaq üçün Enter basın...")  # pəncərə dərhal bağlanmasın
+        except EOFError:
+            pass
