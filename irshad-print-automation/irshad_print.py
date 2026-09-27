@@ -119,9 +119,12 @@ def set_discount_period(page, date_range):
             const $ = window.jQuery;
             const drp = $ && $(el).data('daterangepicker');
             if (drp) {
+                // İstifadəçinin "Tətbiq et" basmasını təqlid et: saytın öz callback-i işləsin
+                drp.show();
                 drp.setStartDate(start);
                 drp.setEndDate(end);
-                $(el).val(value).trigger('apply.daterangepicker', drp);
+                drp.clickApply();
+                return;
             }
             el.value = value;
             el.dispatchEvent(new Event('input', {bubbles: true}));
@@ -133,6 +136,39 @@ def set_discount_period(page, date_range):
     page.keyboard.press("Escape")  # açıq qalan təqvim pəncərəsini bağla
     actual = box.input_value()
     return actual == date_range, actual
+
+
+def watch_page(pg, download_dir):
+    """Çap zamanı brauzerin gizli davranışlarını istifadəçiyə görünən et.
+
+    Playwright susmaya görə alert/confirm pəncərələrini dərhal bağlayır və
+    yüklənən faylları (məs. çap PDF-i) gizli qovluğa atır — ona görə "heç nə olmur".
+    """
+    def on_dialog(d):
+        print(f"  [sayt mesajı] {d.message}")
+        d.accept()
+
+    def on_download(dl):
+        target = download_dir / dl.suggested_filename
+        dl.save_as(target)
+        print(f"  [fayl yükləndi] {target}")
+        if hasattr(os, "startfile"):
+            os.startfile(target)  # Windows-da PDF-i standart proqramla aç
+
+    pg.on("dialog", on_dialog)
+    pg.on("download", on_download)
+
+
+def launch_browser(p, headless):
+    """Kompüterdəki real Chrome/Edge-i açır (PDF baxıcısı və çap normal işləsin)."""
+    for channel in ("chrome", "msedge", None):
+        try:
+            browser = p.chromium.launch(channel=channel, headless=headless, slow_mo=50)
+            print(f"Brauzer: {channel or 'chromium (daxili)'}")
+            return browser
+        except Exception:
+            continue
+    raise SystemExit("Brauzer açıla bilmədi.")
 
 
 def search_input(page):
@@ -215,8 +251,13 @@ def main():
     with sync_playwright() as p, open(log_path, "w", newline="", encoding="utf-8-sig") as f:
         log = csv.writer(f)
         log.writerow(["vərəq", "ID", "nəticə"])
-        browser = p.chromium.launch(headless=args.headless, slow_mo=50)
-        page = browser.new_page()
+        browser = launch_browser(p, args.headless)
+        context = browser.new_context(accept_downloads=True, no_viewport=True)
+        download_dir = HERE / "cap"
+        download_dir.mkdir(exist_ok=True)
+        # Çap düyməsi yeni tab açsa, orada da mesaj/yükləmələri tut
+        context.on("page", lambda pg: watch_page(pg, download_dir))
+        page = context.new_page()
         page.set_default_timeout(30_000)
 
         login(page, email, password)
@@ -242,8 +283,19 @@ def main():
 
         print("\nHazırdır. Brauzer açıq qalır — çapı əl ilə edin.")
         print("Bitirəndə brauzer pəncərəsini bağlayın (proqram özü bağlanacaq).")
-        page.wait_for_event("close", timeout=0)
-        browser.close()
+        # Bütün pəncərələr bağlanana qədər gözlə (bu vaxt mesaj/yükləmə hadisələri işlənir)
+        while browser.is_connected():
+            open_pages = [pg for pg in context.pages if not pg.is_closed()]
+            if not open_pages:
+                break
+            try:
+                open_pages[0].wait_for_timeout(500)
+            except Exception:
+                pass
+        try:
+            browser.close()
+        except Exception:
+            pass
 
     print("\nYekun:", ", ".join(f"{k}: {v}" for k, v in counts.items()))
     print(f"Hesabat: {log_path}")
