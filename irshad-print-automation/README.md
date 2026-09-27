@@ -26,11 +26,7 @@ python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müd
 **Endirim müddəti:** `--date` yazılmayıbsa, proqram başlanğıcda soruşur
 (boş buraxsanız toxunulmur). Bütün ID-lər əlavə olunandan sonra xanaya yazılır.
 
-**Çap:** proqram bitəndə brauzer açıq qalır — çapı əl ilə edin ("Yeni dizayn" və s.),
-sonra brauzer pəncərəsini bağlayın. Kompüterdəki Chrome (yoxdursa Edge) istifadə olunur.
-Saytın mesajları (alert/confirm) konsolda göstərilir və təsdiqlənir; çap faylı
-yüklənərsə `cap/` qovluğuna yazılıb avtomatik açılır.
-
-ID-lər bütün vərəqlərdən sütun-sütun, yuxarıdan aşağı oxunur (3–8 rəqəmli dəyərlər;
-formul xanalarının hesablanmış dəyəri götürülür). Hər ID-nin nəticəsi
-`netice_<tarix>.csv` faylına yazılır (`əlavə edildi` / `tapılmadı` / `xəta`).
+**Çap:** skript kompüterdəki adi Chrome-u (yoxdursa Edge-i) ayrıca `chrome-profile`
+profili ilə açır. Bütün ID-lər əlavə olunandan sonra skript bitir, brauzer isə açıq
+qalır — "Yeni dizayn" və s. ilə çapı orada əl ilə edin. Giriş həmin profildə yadda
+qalır; növbəti dəfə eyni brauzer pəncərəsi istifadə olunur.

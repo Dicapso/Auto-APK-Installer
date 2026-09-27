@@ -17,8 +17,8 @@ Axın:
   python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
 
 Endirim müddəti verilməyibsə, proqram başlanğıcda soruşur (boş buraxsanız seçilmir).
-Bütün ID-lər əlavə edildikdən sonra brauzer AÇIQ QALIR — çapı əl ilə edin,
-bitirəndə brauzer pəncərəsini bağlayın.
+Adi Chrome açılır (ayrıca "chrome-profile" profili ilə). Bütün ID-lər əlavə
+edildikdən sonra skript bitir, brauzer isə AÇIQ QALIR — çapı orada əl ilə edin.
 
 Giriş məlumatları IRSHAD_EMAIL / IRSHAD_PASSWORD mühit dəyişənlərindən və ya
 bu qovluqdakı credentials.txt faylından (1-ci sətir e-poçt, 2-ci sətir şifrə)
@@ -30,7 +30,9 @@ import csv
 import getpass
 import os
 import re
+import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -138,61 +140,59 @@ def set_discount_period(page, date_range):
     return actual == date_range, actual
 
 
-def watch_page(pg, download_dir):
-    """Çap zamanı brauzerin gizli davranışlarını istifadəçiyə görünən et.
+CDP_PORT = 9333
+PROFILE_DIR = HERE / "chrome-profile"
 
-    Playwright susmaya görə alert/confirm pəncərələrini dərhal bağlayır və
-    yüklənən faylları (məs. çap PDF-i) gizli qovluğa atır — ona görə "heç nə olmur".
+
+def find_browser_exe():
+    """Kompüterdəki Chrome-u (yoxdursa Edge-i) tapır."""
+    env = os.environ
+    candidates = []
+    for base in (env.get("ProgramFiles"), env.get("ProgramFiles(x86)"), env.get("LOCALAPPDATA")):
+        if base:
+            candidates.append(Path(base) / "Google/Chrome/Application/chrome.exe")
+    for base in (env.get("ProgramFiles(x86)"), env.get("ProgramFiles")):
+        if base:
+            candidates.append(Path(base) / "Microsoft/Edge/Application/msedge.exe")
+    candidates += [Path("/usr/bin/google-chrome"), Path("/usr/bin/chromium"),
+                   Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")]
+    for c in candidates:
+        if c.exists():
+            return c
+    raise SystemExit("Chrome və ya Edge tapılmadı.")
+
+
+def open_real_browser(p):
+    """Adi Chrome-u (Playwright parametrləri olmadan) açıb ona qoşulur.
+
+    Playwright-in özünün açdığı brauzerdə "Yeni dizayn" kimi çap düymələri işləmir,
+    ona görə adi Chrome ayrıca proses kimi açılır. Skript bitəndə yalnız əlaqə kəsilir —
+    brauzer adi brauzer kimi açıq qalır və çap orada əl ilə edilir.
+    Ayrıca profil (chrome-profile qovluğu) istifadə olunur, girişiniz yadda qalır.
     """
-    def on_dialog(d):
-        print(f"  [sayt mesajı] {d.message}")
-        d.accept()
-
-    def on_download(dl):
-        target = download_dir / dl.suggested_filename
-        dl.save_as(target)
-        print(f"  [fayl yükləndi] {target}")
-        if hasattr(os, "startfile"):
-            os.startfile(target)  # Windows-da PDF-i standart proqramla aç
-
-    pg.on("dialog", on_dialog)
-    pg.on("download", on_download)
-
-
-def attach_debug_log(context, path):
-    """Çap düymələri işləməsə səbəbi tapmaq üçün: JS xətaları və sorğular faylda + konsolda."""
-    f = open(path, "a", encoding="utf-8", buffering=1)
-
-    def write(msg, show=False):
-        f.write(f"{datetime.now():%H:%M:%S} {msg}\n")
-        if show:
-            print(f"  {msg}")
-
-    def attach(pg):
-        pg.on("pageerror", lambda e: write(f"[JS xətası] {e}", show=True))
-        pg.on("console", lambda m: write(f"[console.{m.type}] {m.text}", show=m.type == "error"))
-        pg.on("request", lambda r: write(f"[sorğu] {r.method} {r.url}")
-              if r.resource_type in ("document", "xhr", "fetch") else None)
-        pg.on("response", lambda r: write(f"[cavab {r.status}] {r.url}", show=r.status >= 400)
-              if r.request.resource_type in ("document", "xhr", "fetch") else None)
-        pg.on("popup", lambda p: write(f"[popup] {p.url}", show=True))
-
-    for pg in context.pages:
-        attach(pg)
-    context.on("page", attach)
-    print(f"Diaqnostika faylı: {path}")
-
-
-def launch_browser(p, headless):
-    """Kompüterdəki real Chrome/Edge-i açır (PDF baxıcısı və çap normal işləsin)."""
-    for channel in ("chrome", "msedge", None):
+    url = f"http://127.0.0.1:{CDP_PORT}"
+    try:  # əvvəlki işə salmadan açıq qalıbsa, ona qoşul
+        return p.chromium.connect_over_cdp(url, timeout=2000)
+    except Exception:
+        pass
+    exe = find_browser_exe()
+    print(f"Brauzer: {exe}")
+    flags = 0
+    if sys.platform == "win32":  # skript bağlananda brauzer bağlanmasın
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(
+        [str(exe), f"--remote-debugging-port={CDP_PORT}", f"--user-data-dir={PROFILE_DIR}",
+         "--no-first-run", "--no-default-browser-check", "--start-maximized", "about:blank"],
+        creationflags=flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    deadline = time.time() + 30
+    while True:
         try:
-            browser = p.chromium.launch(channel=channel, headless=headless, slow_mo=50)
-            print(f"Brauzer: {channel or 'chromium (daxili)'}")
-            return browser
+            return p.chromium.connect_over_cdp(url, timeout=2000)
         except Exception:
-            continue
-    raise SystemExit("Brauzer açıla bilmədi.")
+            if time.time() > deadline:
+                raise SystemExit("Brauzerə qoşulmaq alınmadı.")
+            time.sleep(0.5)
 
 
 def search_input(page):
@@ -244,7 +244,6 @@ def main():
     ap.add_argument("--unique", action="store_true", help="Təkrar olunan ID-ləri bir dəfə əlavə et")
     ap.add_argument("--start-from", help="Bu ID-dən başla (daxil olmaqla)")
     ap.add_argument("--dry-run", action="store_true", help="Sayta girmədən yalnız ID siyahısını göstər")
-    ap.add_argument("--headless", action="store_true", help="Brauzer pəncərəsini göstərmə")
     ap.add_argument("--date", help='Endirim müddəti, məs. "28.09.2026 - 30.09.2026"')
     ap.add_argument("--timeout", type=int, default=10, help="Hər axtarış üçün gözləmə (saniyə)")
     args = ap.parse_args()
@@ -270,26 +269,23 @@ def main():
         except ValueError as e:
             raise SystemExit(str(e))
 
-    email, password = get_credentials()
     log_path = HERE / f"netice_{datetime.now():%Y%m%d_%H%M%S}.csv"
     counts = {}
 
     with sync_playwright() as p, open(log_path, "w", newline="", encoding="utf-8-sig") as f:
         log = csv.writer(f)
         log.writerow(["vərəq", "ID", "nəticə"])
-        browser = launch_browser(p, args.headless)
-        context = browser.new_context(accept_downloads=True, no_viewport=True)
-        download_dir = HERE / "cap"
-        download_dir.mkdir(exist_ok=True)
-        # Çap düyməsi yeni tab açsa, orada da mesaj/yükləmələri tut
-        context.on("page", lambda pg: watch_page(pg, download_dir))
-        page = context.new_page()
+        browser = open_real_browser(p)
+        context = browser.contexts[0]
+        page = context.pages[0] if context.pages else context.new_page()
         page.set_default_timeout(30_000)
-        # Bundan sonra açılan hər yeni pəncərə (məs. "Yeni dizayn" çap səhifəsi) konsolda göstərilir
-        context.on("page", lambda pg: print(f"  [yeni pəncərə açıldı] {pg.url or '(yüklənir)'}"))
+        accept_dialog = lambda d: d.accept()  # əlavə zamanı çıxan təsdiq pəncərələri
+        page.on("dialog", accept_dialog)
 
-        login(page, email, password)
         page.goto(PRINT_URL, wait_until="networkidle")
+        if "/login" in page.url:  # profil əvvəldən giriş etməyibsə
+            login(page, *get_credentials())
+            page.goto(PRINT_URL, wait_until="networkidle")
 
         for n, (sheet, pid) in enumerate(ids, 1):
             try:
@@ -312,27 +308,10 @@ def main():
             except Exception as e:
                 print(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
 
-        debug_path = HERE / f"debug_{datetime.now():%Y%m%d_%H%M%S}.txt"
-        attach_debug_log(context, debug_path)
+        page.remove_listener("dialog", accept_dialog)  # çap zamanı mesajları siz görəsiniz
+        browser.close()  # yalnız əlaqəni kəsir — brauzer açıq qalır
 
-        print("\nHazırdır. Brauzer açıq qalır — çapı əl ilə edin.")
-        print("Qeyd: çap siyahısı serverdə saxlanılır — çapı adi Chrome-da da edə bilərsiniz:")
-        print(f"      {PRINT_URL}")
-        print("Bitirəndə brauzer pəncərəsini bağlayın (proqram özü bağlanacaq).")
-        # Bütün pəncərələr bağlanana qədər gözlə (bu vaxt mesaj/yükləmə hadisələri işlənir)
-        while browser.is_connected():
-            open_pages = [pg for pg in context.pages if not pg.is_closed()]
-            if not open_pages:
-                break
-            try:
-                open_pages[0].wait_for_timeout(500)
-            except Exception:
-                pass
-        try:
-            browser.close()
-        except Exception:
-            pass
-
+    print("\nHazırdır. Brauzer açıq qalır — çapı orada əl ilə edin (\"Yeni dizayn\" və s.).")
     print("\nYekun:", ", ".join(f"{k}: {v}" for k, v in counts.items()))
     print(f"Hesabat: {log_path}")
 
