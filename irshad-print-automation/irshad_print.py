@@ -159,6 +159,30 @@ def watch_page(pg, download_dir):
     pg.on("download", on_download)
 
 
+def attach_debug_log(context, path):
+    """Çap düymələri işləməsə səbəbi tapmaq üçün: JS xətaları və sorğular faylda + konsolda."""
+    f = open(path, "a", encoding="utf-8", buffering=1)
+
+    def write(msg, show=False):
+        f.write(f"{datetime.now():%H:%M:%S} {msg}\n")
+        if show:
+            print(f"  {msg}")
+
+    def attach(pg):
+        pg.on("pageerror", lambda e: write(f"[JS xətası] {e}", show=True))
+        pg.on("console", lambda m: write(f"[console.{m.type}] {m.text}", show=m.type == "error"))
+        pg.on("request", lambda r: write(f"[sorğu] {r.method} {r.url}")
+              if r.resource_type in ("document", "xhr", "fetch") else None)
+        pg.on("response", lambda r: write(f"[cavab {r.status}] {r.url}", show=r.status >= 400)
+              if r.request.resource_type in ("document", "xhr", "fetch") else None)
+        pg.on("popup", lambda p: write(f"[popup] {p.url}", show=True))
+
+    for pg in context.pages:
+        attach(pg)
+    context.on("page", attach)
+    print(f"Diaqnostika faylı: {path}")
+
+
 def launch_browser(p, headless):
     """Kompüterdəki real Chrome/Edge-i açır (PDF baxıcısı və çap normal işləsin)."""
     for channel in ("chrome", "msedge", None):
@@ -199,7 +223,9 @@ def search_and_add(page, product_id, timeout_ms):
         "a.btn-success, button.btn-success, .btn-success, button:has(i.fa-plus), a:has(i.fa-plus)"
     ).first
     if not add_btn.count():
-        return "düymə tapılmadı"
+        # Qırmızı "−" düyməsi = məhsul artıq çap siyahısındadır (siyahı serverdə saxlanılır)
+        remove_btn = row.locator(".btn-danger, button:has(i.fa-minus), a:has(i.fa-minus)")
+        return "artıq siyahıdadır" if remove_btn.count() else "düymə tapılmadı"
     add_btn.click()
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(300)
@@ -260,7 +286,7 @@ def main():
         page = context.new_page()
         page.set_default_timeout(30_000)
         # Bundan sonra açılan hər yeni pəncərə (məs. "Yeni dizayn" çap səhifəsi) konsolda göstərilir
-        context.on("page", lambda pg: pg.once("load", lambda: print(f"  [yeni pəncərə açıldı] {pg.url}")))
+        context.on("page", lambda pg: print(f"  [yeni pəncərə açıldı] {pg.url or '(yüklənir)'}"))
 
         login(page, email, password)
         page.goto(PRINT_URL, wait_until="networkidle")
@@ -276,6 +302,9 @@ def main():
             f.flush()
             print(f"[{n}/{len(ids)}] {sheet} | {pid} → {result}")
 
+        # Axtarış filtrini təmizlə: səhifə təmiz halda açılsın (çap üçün)
+        page.goto(PRINT_URL, wait_until="networkidle")
+
         if date_range:
             try:
                 ok, actual = set_discount_period(page, date_range)
@@ -283,7 +312,12 @@ def main():
             except Exception as e:
                 print(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
 
+        debug_path = HERE / f"debug_{datetime.now():%Y%m%d_%H%M%S}.txt"
+        attach_debug_log(context, debug_path)
+
         print("\nHazırdır. Brauzer açıq qalır — çapı əl ilə edin.")
+        print("Qeyd: çap siyahısı serverdə saxlanılır — çapı adi Chrome-da da edə bilərsiniz:")
+        print(f"      {PRINT_URL}")
         print("Bitirəndə brauzer pəncərəsini bağlayın (proqram özü bağlanacaq).")
         # Bütün pəncərələr bağlanana qədər gözlə (bu vaxt mesaj/yükləmə hadisələri işlənir)
         while browser.is_connected():

@@ -2,3 +2,4 @@ credentials.txt
 .venv/
 netice_*.csv
 cap/
+debug_*.txt
