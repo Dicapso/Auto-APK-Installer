@@ -182,7 +182,9 @@ def open_real_browser(p):
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     subprocess.Popen(
         [str(exe), f"--remote-debugging-port={CDP_PORT}", f"--user-data-dir={PROFILE_DIR}",
-         "--no-first-run", "--no-default-browser-check", "--start-maximized", "about:blank"],
+         "--no-first-run", "--no-default-browser-check", "--start-maximized",
+         "--disable-popup-blocking",  # çap səhifəsi yeni pəncərədə açıla bilsin
+         "about:blank"],
         creationflags=flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     deadline = time.time() + 30
