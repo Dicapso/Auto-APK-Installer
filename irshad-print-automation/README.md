@@ -20,7 +20,14 @@ python irshad_print.py ID.xlsx --sheet Tv      # yalnız "Tv" vərəqi
 python irshad_print.py ID.xlsx --unique        # təkrar ID-ləri bir dəfə
 python irshad_print.py ID.xlsx --start-from 104737   # yarımçıq qalıbsa davam et
 python irshad_print.py ID.xlsx --dry-run       # yalnız ID siyahısına bax
+python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
 ```
+
+**Endirim müddəti:** `--date` yazılmayıbsa, proqram başlanğıcda soruşur
+(boş buraxsanız toxunulmur). Bütün ID-lər əlavə olunandan sonra xanaya yazılır.
+
+**Çap:** proqram bitəndə brauzer açıq qalır — çapı əl ilə edin, sonra
+brauzer pəncərəsini bağlayın.
 
 ID-lər bütün vərəqlərdən sütun-sütun, yuxarıdan aşağı oxunur (3–8 rəqəmli dəyərlər;
 formul xanalarının hesablanmış dəyəri götürülür). Hər ID-nin nəticəsi

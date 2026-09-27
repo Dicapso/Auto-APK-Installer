@@ -14,6 +14,11 @@ Axın:
   python irshad_print.py ID.xlsx --unique                    # təkrar ID-ləri bir dəfə əlavə et
   python irshad_print.py ID.xlsx --start-from 104737         # bu ID-dən davam et
   python irshad_print.py ID.xlsx --dry-run                   # yalnız ID siyahısını göstər
+  python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
+
+Endirim müddəti verilməyibsə, proqram başlanğıcda soruşur (boş buraxsanız seçilmir).
+Bütün ID-lər əlavə edildikdən sonra brauzer AÇIQ QALIR — çapı əl ilə edin,
+bitirəndə brauzer pəncərəsini bağlayın.
 
 Giriş məlumatları IRSHAD_EMAIL / IRSHAD_PASSWORD mühit dəyişənlərindən və ya
 bu qovluqdakı credentials.txt faylından (1-ci sətir e-poçt, 2-ci sətir şifrə)
@@ -87,6 +92,49 @@ def login(page, email, password):
         raise SystemExit("Giriş alınmadı — e-poçt/şifrəni yoxlayın.")
 
 
+DATE_RE = re.compile(r"^\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})\s*$")
+
+
+def normalize_date_range(text):
+    """'28.09.2026-30.09.2026' → '28.09.2026 - 30.09.2026'; səhvdirsə ValueError."""
+    m = DATE_RE.match(text or "")
+    if not m:
+        raise ValueError("Tarix formatı: GG.AA.İİİİ - GG.AA.İİİİ (məs. 28.09.2026 - 30.09.2026)")
+    for d in m.groups():
+        try:
+            datetime.strptime(d, "%d.%m.%Y")
+        except ValueError:
+            raise ValueError(f"Yanlış tarix: {d}")
+    return f"{m.group(1)} - {m.group(2)}"
+
+
+def set_discount_period(page, date_range):
+    """'Endirim müddəti' xanasına tarix aralığını yazır (daterangepicker dəstəyi ilə)."""
+    start, end = [d.strip() for d in date_range.split("-")]
+    box = page.locator("input[placeholder='Endirim müddəti']").first
+    box.wait_for(state="visible")
+    box.evaluate(
+        """(el, [start, end]) => {
+            const value = start + ' - ' + end;
+            const $ = window.jQuery;
+            const drp = $ && $(el).data('daterangepicker');
+            if (drp) {
+                drp.setStartDate(start);
+                drp.setEndDate(end);
+                $(el).val(value).trigger('apply.daterangepicker', drp);
+            }
+            el.value = value;
+            el.dispatchEvent(new Event('input', {bubbles: true}));
+            el.dispatchEvent(new Event('change', {bubbles: true}));
+            if ($) $(el).trigger('change');
+        }""",
+        [start, end],
+    )
+    page.keyboard.press("Escape")  # açıq qalan təqvim pəncərəsini bağla
+    actual = box.input_value()
+    return actual == date_range, actual
+
+
 def search_input(page):
     return page.locator("input[placeholder='Axtar']").first
 
@@ -135,6 +183,7 @@ def main():
     ap.add_argument("--start-from", help="Bu ID-dən başla (daxil olmaqla)")
     ap.add_argument("--dry-run", action="store_true", help="Sayta girmədən yalnız ID siyahısını göstər")
     ap.add_argument("--headless", action="store_true", help="Brauzer pəncərəsini göstərmə")
+    ap.add_argument("--date", help='Endirim müddəti, məs. "28.09.2026 - 30.09.2026"')
     ap.add_argument("--timeout", type=int, default=10, help="Hər axtarış üçün gözləmə (saniyə)")
     args = ap.parse_args()
 
@@ -149,6 +198,15 @@ def main():
         for sheet, pid in ids:
             print(f"  [{sheet}] {pid}")
         return
+
+    date_range = args.date
+    if date_range is None:
+        date_range = input("Endirim müddəti (məs. 28.09.2026 - 30.09.2026, boş = seçmə): ").strip()
+    if date_range:
+        try:
+            date_range = normalize_date_range(date_range)
+        except ValueError as e:
+            raise SystemExit(str(e))
 
     email, password = get_credentials()
     log_path = HERE / f"netice_{datetime.now():%Y%m%d_%H%M%S}.csv"
@@ -175,6 +233,16 @@ def main():
             f.flush()
             print(f"[{n}/{len(ids)}] {sheet} | {pid} → {result}")
 
+        if date_range:
+            try:
+                ok, actual = set_discount_period(page, date_range)
+                print(f"Endirim müddəti: {actual}" + ("" if ok else f"  (gözlənilən: {date_range} — əl ilə yoxlayın!)"))
+            except Exception as e:
+                print(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
+
+        print("\nHazırdır. Brauzer açıq qalır — çapı əl ilə edin.")
+        print("Bitirəndə brauzer pəncərəsini bağlayın (proqram özü bağlanacaq).")
+        page.wait_for_event("close", timeout=0)
         browser.close()
 
     print("\nYekun:", ", ".join(f"{k}: {v}" for k, v in counts.items()))
