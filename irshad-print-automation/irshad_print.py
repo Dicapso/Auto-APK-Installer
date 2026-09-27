@@ -5,7 +5,7 @@ Axın:
   1. https://manage.irshad.az saytına giriş
   2. /print/products (Məhsullar → Çap) səhifəsinə keçid
   3. Excel-dəki hər ID "Axtar" xanasına yazılıb axtarılır
-  4. Nəticə sətrindəki yaşıl "+" düyməsi basılır
+  4. Nəticə sətrinin checkbox-u işarələnir (çap üçün seçim) və yaşıl "+" basılır
   5. Növbəti ID ilə təkrar
 
 İstifadə:
@@ -148,9 +148,14 @@ PROFILE_DIR = HERE / "chrome-profile"
 
 
 def find_browser_exe():
-    """Kompüterdəki Chrome-u (yoxdursa Edge-i) tapır."""
+    """Kompüterdəki Opera-nı tapır; yoxdursa Chrome, sonra Edge."""
     env = os.environ
     candidates = []
+    for base in (env.get("LOCALAPPDATA"), env.get("ProgramFiles"), env.get("ProgramFiles(x86)")):
+        if base:
+            for name in ("Opera", "Opera GX"):
+                candidates += [Path(base) / "Programs" / name / "opera.exe", Path(base) / name / "opera.exe",
+                               Path(base) / "Programs" / name / "launcher.exe"]
     for base in (env.get("ProgramFiles"), env.get("ProgramFiles(x86)"), env.get("LOCALAPPDATA")):
         if base:
             candidates.append(Path(base) / "Google/Chrome/Application/chrome.exe")
@@ -162,16 +167,15 @@ def find_browser_exe():
     for c in candidates:
         if c.exists():
             return c
-    raise SystemExit("Chrome və ya Edge tapılmadı.")
+    raise SystemExit("Opera, Chrome və ya Edge tapılmadı.")
 
 
 def open_real_browser(p):
-    """Adi Chrome-u (Playwright parametrləri olmadan) açıb ona qoşulur.
+    """Adi brauzeri (Opera/Chrome/Edge) ayrıca proses kimi açıb ona qoşulur.
 
-    Playwright-in özünün açdığı brauzerdə "Yeni dizayn" kimi çap düymələri işləmir,
-    ona görə adi Chrome ayrıca proses kimi açılır. Skript bitəndə yalnız əlaqə kəsilir —
-    brauzer adi brauzer kimi açıq qalır və çap orada əl ilə edilir.
-    Ayrıca profil (chrome-profile qovluğu) istifadə olunur, girişiniz yadda qalır.
+    Skript bitəndə yalnız əlaqə kəsilir — brauzer adi brauzer kimi açıq qalır və
+    çap orada əl ilə edilir. Ayrıca profil (chrome-profile qovluğu) istifadə olunur,
+    girişiniz yadda qalır.
     """
     url = f"http://127.0.0.1:{CDP_PORT}"
     try:  # əvvəlki işə salmadan açıq qalıbsa, ona qoşul
@@ -309,8 +313,14 @@ def search_and_add(page, product_id, timeout_ms, remove=False):
     except PWTimeout:
         return "tapılmadı"
 
+    # Sətrin checkbox-u: çap düymələri ("Yeni dizayn" və s.) YALNIZ işarələnmiş məhsulları
+    # çap edir — sayt onları brauzerin localStorage["print"] siyahısında saxlayır.
+    checkbox = row.locator("input.check").first
     remove_sel = ".btn-danger, button:has(i.fa-minus), a:has(i.fa-minus)"
-    if remove:  # siyahıdan çıxar: qırmızı "−" düyməsi
+    if remove:
+        if checkbox.count() and checkbox.is_checked():
+            checkbox.uncheck()
+        # qırmızı "−" düyməsi  # siyahıdan çıxar: qırmızı "−" düyməsi
         remove_btn = row.locator(remove_sel).first
         if not remove_btn.count():
             return "siyahıda deyil"
@@ -321,20 +331,25 @@ def search_and_add(page, product_id, timeout_ms, remove=False):
             page.goto(PRINT_URL, wait_until="networkidle")
         return "silindi"
 
+    if not checkbox.count():
+        return "checkbox tapılmadı"
+    checkbox.check()  # artıq işarəlidirsə toxunmur
+    selected = "seçildi"
+
     add_btn = row.locator(
         "a.btn-success, button.btn-success, .btn-success, button:has(i.fa-plus), a:has(i.fa-plus)"
     ).first
     if not add_btn.count():
         # Qırmızı "−" düyməsi = məhsul artıq çap siyahısındadır (siyahı serverdə saxlanılır)
         remove_btn = row.locator(remove_sel)
-        return "artıq siyahıdadır" if remove_btn.count() else "düymə tapılmadı"
+        return f"{selected} (+ artıq əlavə olunub)" if remove_btn.count() else f"{selected} (+ düyməsi yoxdur)"
     add_btn.click()
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(300)
     # Əlavə etdikdən sonra səhifə başqa yerə keçibsə, geri qayıt
     if not page.url.startswith(PRINT_URL):
         page.goto(PRINT_URL, wait_until="networkidle")
-    return "əlavə edildi"
+    return f"{selected} + əlavə edildi"
 
 
 def main():
@@ -346,8 +361,8 @@ def main():
     ap.add_argument("--unique", action="store_true", help="Təkrar olunan ID-ləri bir dəfə əlavə et")
     ap.add_argument("--remove", action="store_true",
                     help="Əlavə etmək əvəzinə Excel-dəki ID-ləri çap siyahısından SİL (qırmızı − düyməsi)")
-    ap.add_argument("--batch", type=int, default=30,
-                    help="Hər neçə ID-dən sonra çap üçün dayansın (susmaya görə 30; 0 = dayanmadan)")
+    ap.add_argument("--batch", type=int, default=0,
+                    help="Hər neçə ID-dən sonra çap üçün dayansın (0 = dayanmadan)")
     ap.add_argument("--reset", action="store_true",
                     help="Başlamazdan əvvəl skript brauzerində saytın məlumatını (çap siyahısı, giriş) sil")
     ap.add_argument("--diagnose", action="store_true",
@@ -443,6 +458,9 @@ def main():
         if not args.remove:
             prepare_for_print()
 
+        count = page.evaluate("() => { try { return JSON.parse(localStorage.getItem('print') || '[]').length }"
+                              " catch (e) { return -1 } }")
+        print(f"Çap üçün seçilmiş məhsul sayı: {count}")
         page.remove_listener("dialog", accept_dialog)  # çap zamanı mesajları siz görəsiniz
         browser.close()  # yalnız əlaqəni kəsir — brauzer açıq qalır
 
