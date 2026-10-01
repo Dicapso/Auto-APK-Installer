@@ -8,6 +8,8 @@ Axın:
   4. Nəticə sətrinin checkbox-u işarələnir (çap üçün seçim) və yaşıl "+" basılır
   5. Növbəti ID ilə təkrar
 
+Ara üz (pəncərə): python irshad_gui.py   — terminal rejimi aşağıdakı kimidir.
+
 İstifadə:
   python irshad_print.py ID.xlsx
   python irshad_print.py ID.xlsx --sheet Tv --sheet Ashagi   # yalnız bu vərəqlər
@@ -20,7 +22,7 @@ Axın:
   python irshad_print.py ID.xlsx --batch 50                  # hər 50 ID-dən sonra çap üçün dayan
 
 Endirim müddəti verilməyibsə, proqram başlanğıcda soruşur (boş buraxsanız seçilmir).
-Adi Chrome açılır (ayrıca "chrome-profile" profili ilə). Bütün ID-lər əlavə
+Opera (yoxdursa Chrome/Edge) açılır (ayrıca "chrome-profile" profili ilə). Bütün ID-lər əlavə
 edildikdən sonra skript bitir, brauzer isə AÇIQ QALIR — çapı orada əl ilə edin.
 
 Giriş məlumatları IRSHAD_EMAIL / IRSHAD_PASSWORD mühit dəyişənlərindən və ya
@@ -72,6 +74,15 @@ def read_ids(xlsx_path, sheets=None, unique=False):
                 seen.add(s)
                 ids.append((ws.title, s))
     return ids
+
+
+def list_sheets(xlsx_path):
+    """[(vərəq adı, ID sayı), ...] — ara üzdə vərəq seçimi üçün."""
+    counts = {}
+    for sheet, _ in read_ids(xlsx_path):
+        counts[sheet] = counts.get(sheet, 0) + 1
+    wb = openpyxl.load_workbook(xlsx_path, read_only=True)
+    return [(name, counts.get(name, 0)) for name in wb.sheetnames]
 
 
 def get_credentials():
@@ -172,7 +183,7 @@ def find_browser_exe():
     raise SystemExit("Opera, Chrome və ya Edge tapılmadı.")
 
 
-def open_real_browser(p):
+def open_real_browser(p, log=print):
     """Adi brauzeri (Opera/Chrome/Edge) ayrıca proses kimi açıb ona qoşulur.
 
     Skript bitəndə yalnız əlaqə kəsilir — brauzer adi brauzer kimi açıq qalır və
@@ -185,7 +196,7 @@ def open_real_browser(p):
     except Exception:
         pass
     exe = find_browser_exe()
-    print(f"Brauzer: {exe}")
+    log(f"Brauzer: {exe}")
     flags = 0
     if sys.platform == "win32":  # skript bağlananda brauzer bağlanmasın
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
@@ -237,7 +248,7 @@ def search_and_add(page, product_id, timeout_ms, remove=False):
     if remove:
         if checkbox.count() and checkbox.is_checked():
             checkbox.uncheck()
-        # qırmızı "−" düyməsi  # siyahıdan çıxar: qırmızı "−" düyməsi
+        # siyahıdan çıxar: qırmızı "−" düyməsi
         remove_btn = row.locator(remove_sel).first
         if not remove_btn.count():
             return "siyahıda deyil"
@@ -257,7 +268,7 @@ def search_and_add(page, product_id, timeout_ms, remove=False):
         "a.btn-success, button.btn-success, .btn-success, button:has(i.fa-plus), a:has(i.fa-plus)"
     ).first
     if not add_btn.count():
-        # Qırmızı "−" düyməsi = məhsul artıq çap siyahısındadır (siyahı serverdə saxlanılır)
+        # Qırmızı "−" düyməsi = "+" artıq əvvəl basılıb
         remove_btn = row.locator(remove_sel)
         return f"{selected} (+ artıq əlavə olunub)" if remove_btn.count() else f"{selected} (+ düyməsi yoxdur)"
     add_btn.click()
@@ -288,11 +299,6 @@ def main():
     ap.add_argument("--timeout", type=int, default=10, help="Hər axtarış üçün gözləmə (saniyə)")
     args = ap.parse_args()
 
-    # .exe iki dəfə kliklənib və ya üzərinə Excel sürüklənibsə — menyu göstər
-    if FROZEN and len(sys.argv) <= 2:
-        print(" 1 - Excel-dəki məhsulları çap üçün seç (əsas)")
-        print(" 2 - Excel-dəki məhsulları siyahıdan sil")
-        args.remove = input("Seçim (1/2, boş = 1): ").strip() == "2"
     if not args.excel:
         args.excel = input("Excel faylını bura sürükləyin və Enter basın: ").strip().strip('"')
 
@@ -317,29 +323,41 @@ def main():
         except ValueError as e:
             raise SystemExit(str(e))
 
+    run_job(ids, date_range, remove=args.remove, timeout=args.timeout,
+            batch=args.batch, reset=args.reset)
+
+
+def run_job(ids, date_range, remove=False, timeout=10, batch=0, reset=False,
+            log=print, progress=None, should_stop=None, credentials=None):
+    """Əsas iş: ID-ləri saytda seçir. Həm terminal (CLI), həm də ara üz (GUI) istifadə edir.
+
+    log(str) — mesaj; progress(n, total) — irəliləyiş; should_stop() — dayandırma sorğusu;
+    credentials() — (e-poçt, şifrə) qaytarır, yalnız giriş lazım olanda çağırılır.
+    """
+    credentials = credentials or get_credentials
     log_path = HERE / f"netice_{datetime.now():%Y%m%d_%H%M%S}.csv"
     counts = {}
 
     with sync_playwright() as p, open(log_path, "w", newline="", encoding="utf-8-sig") as f:
-        log = csv.writer(f)
-        log.writerow(["vərəq", "ID", "nəticə"])
-        browser = open_real_browser(p)
+        writer = csv.writer(f)
+        writer.writerow(["vərəq", "ID", "nəticə"])
+        browser = open_real_browser(p, log)
         context = browser.contexts[0]
         page = context.pages[0] if context.pages else context.new_page()
         page.set_default_timeout(30_000)
         accept_dialog = lambda d: d.accept()  # əlavə zamanı çıxan təsdiq pəncərələri
         page.on("dialog", accept_dialog)
 
-        if args.reset:
+        if reset:
             # Bu profildə sayta aid bütün məlumatı (cookie, localStorage, çap siyahısı) sil
             cdp = context.new_cdp_session(page)
             cdp.send("Storage.clearDataForOrigin", {"origin": BASE_URL, "storageTypes": "all"})
             cdp.detach()
-            print("Saytın brauzerdəki məlumatı təmizləndi.")
+            log("Saytın brauzerdəki məlumatı təmizləndi.")
 
         page.goto(PRINT_URL, wait_until="networkidle")
         if "/login" in page.url:  # profil əvvəldən giriş etməyibsə
-            login(page, *get_credentials())
+            login(page, *credentials())
             page.goto(PRINT_URL, wait_until="networkidle")
 
         def prepare_for_print():
@@ -348,21 +366,26 @@ def main():
             if date_range:
                 try:
                     ok, actual = set_discount_period(page, date_range)
-                    print(f"Endirim müddəti: {actual}" + ("" if ok else f"  (gözlənilən: {date_range} — əl ilə yoxlayın!)"))
+                    log(f"Endirim müddəti: {actual}" + ("" if ok else f"  (gözlənilən: {date_range} — əl ilə yoxlayın!)"))
                 except Exception as e:
-                    print(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
+                    log(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
 
-        batch = args.batch if args.batch > 0 and not args.remove else len(ids)
+        batch = batch if batch > 0 and not remove else len(ids)
         for n, (sheet, pid) in enumerate(ids, 1):
+            if should_stop and should_stop():
+                log("Dayandırıldı.")
+                break
             try:
-                result = search_and_add(page, pid, args.timeout * 1000, args.remove)
+                result = search_and_add(page, pid, timeout * 1000, remove)
             except Exception as e:  # səhifə ilişibsə yenidən yüklə və davam et
                 result = f"xəta: {e.__class__.__name__}"
                 page.goto(PRINT_URL, wait_until="networkidle")
             counts[result] = counts.get(result, 0) + 1
-            log.writerow([sheet, pid, result])
+            writer.writerow([sheet, pid, result])
             f.flush()
-            print(f"[{n}/{len(ids)}] {sheet} | {pid} → {result}")
+            log(f"[{n}/{len(ids)}] {sheet} | {pid} → {result}")
+            if progress:
+                progress(n, len(ids))
 
             if n % batch == 0 and n < len(ids):
                 # Siyahı çox böyüməsin: hər hissədən sonra çap et və təmizlə
@@ -373,18 +396,19 @@ def main():
                 page.on("dialog", accept_dialog)
                 page.goto(PRINT_URL, wait_until="networkidle")
 
-        if not args.remove:
+        if not remove:
             prepare_for_print()
 
         count = page.evaluate("() => { try { return JSON.parse(localStorage.getItem('print') || '[]').length }"
                               " catch (e) { return -1 } }")
-        print(f"Çap üçün seçilmiş məhsul sayı: {count}")
+        log(f"Çap üçün seçilmiş məhsul sayı: {count}")
         page.remove_listener("dialog", accept_dialog)  # çap zamanı mesajları siz görəsiniz
         browser.close()  # yalnız əlaqəni kəsir — brauzer açıq qalır
 
-    print("\nHazırdır. Brauzer açıq qalır — çapı orada əl ilə edin (\"Yeni dizayn\" və s.).")
-    print("\nYekun:", ", ".join(f"{k}: {v}" for k, v in counts.items()))
-    print(f"Hesabat: {log_path}")
+    log("\nHazırdır. Brauzer açıq qalır — çapı orada əl ilə edin (\"Yeni dizayn\" və s.).")
+    log("Yekun: " + ", ".join(f"{k}: {v}" for k, v in counts.items()))
+    log(f"Hesabat: {log_path}")
+    return counts
 
 
 if __name__ == "__main__":

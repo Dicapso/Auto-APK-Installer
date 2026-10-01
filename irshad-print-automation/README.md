@@ -11,10 +11,12 @@ bir-bir axtarır və hər nəticənin yaşıl **+** düyməsini basır.
    sifre
    ```
    (Yaratmasanız proqram özü soruşacaq.)
-3. Excel faylını `run.bat`-ın üzərinə sürükləyin və menyudan seçin (1 = çap üçün seç, 2 = sil).
-   İlk dəfə lazımi paketlər avtomatik yüklənir.
+3. `run.bat`-ı açın (və ya Excel faylını onun üzərinə sürükləyin) — **ara üz** açılır:
+   Excel faylı, vərəqlər, rejim (çap üçün seç / sil), endirim müddəti, giriş və
+   **Başlat** düyməsi. Gedişat və nəticələr eyni pəncərədə görünür.
+   İlk dəfə lazımi paketlər avtomatik yüklənir. Windows 10/11-də pəncərə şəffaf (acrylic) görünür.
 
-## Əmr sətri
+## Əmr sətri (ara üzsüz)
 ```
 python irshad_print.py ID.xlsx                 # bütün vərəqlər
 python irshad_print.py ID.xlsx --sheet Tv      # yalnız "Tv" vərəqi
@@ -36,7 +38,7 @@ işarələyir və yaşıl **+** düyməsini basır. Brauzer olaraq Opera (yoxdur
 ayrıca `chrome-profile` profili ilə açılır; skript bitəndə brauzer açıq qalır — çapı orada edin.
 
 ## Kodu gizlətmək: .exe
-`build_exe.bat`-ı işə salın — `dist\IrshadCap.exe` yaranır. Başqalarına yalnız bu exe
+`build_exe.bat`-ı işə salın — `dist\IrshadCap.exe` (ara üzlü) yaranır. Başqalarına yalnız bu exe
 faylını verin (Python lazım deyil). Exe-ni iki dəfə klikləyin və ya Excel faylını onun
 üzərinə sürükləyin. `credentials.txt`, `chrome-profile` və hesabat faylları exe-nin
 yanında yaranır — bunları paylaşmayın.
