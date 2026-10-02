@@ -116,6 +116,11 @@ class App(ctk.CTk):
                       hover_color=ACCENT_HOVER, command=self._pick_excel).pack(side="left", padx=(8, 0))
         self.excel_info = ctk.CTkLabel(card.body, text="", text_color=TEXT_MUTED, anchor="w")
         self.excel_info.pack(fill="x", pady=(6, 0))
+        self.only_green = ctk.CTkSwitch(card.body, text="Yalnız yaşıl rəngli xanalar", progress_color="#22c55e",
+                                        command=self._on_green)
+        self.only_green.pack(anchor="w", pady=(8, 0))
+        ctk.CTkLabel(card.body, text="Nüsxə sayı: Excel-də ID-nin yanındakı rəqəm (məs. 2, 3); yoxdursa 1",
+                     text_color=TEXT_MUTED, anchor="w", font=ctk.CTkFont(size=11)).pack(fill="x", pady=(6, 0))
 
         # Vərəqlər
         card = self._card(root, "VƏRƏQLƏR")
@@ -222,7 +227,7 @@ class App(ctk.CTk):
 
     def _set_excel(self, path):
         try:
-            sheets = core.list_sheets(path)
+            sheets = core.list_sheets(path, bool(self.only_green.get()))
         except Exception as e:
             messagebox.showerror("Xəta", f"Excel faylı oxunmadı:\n{e}")
             return
@@ -247,6 +252,11 @@ class App(ctk.CTk):
         self.all_sheets.select()
         self._refresh_count()
 
+    def _on_green(self):
+        # Yaşıl filtr dəyişəndə vərəqlərdəki ID sayları yenidən hesablanır
+        if getattr(self, "excel_path", None):
+            self._set_excel(self.excel_path)
+
     def _toggle_all_sheets(self):
         on = bool(self.all_sheets.get())
         for name, var in self.sheet_vars.items():
@@ -257,16 +267,17 @@ class App(ctk.CTk):
         sheets = [n for n, v in self.sheet_vars.items() if v.get()]
         if not sheets:
             return []
-        return core.read_ids(self.excel_path, sheets, bool(self.unique.get()))
+        return core.read_ids(self.excel_path, sheets, bool(self.unique.get()), bool(self.only_green.get()))
 
     def _refresh_count(self):
         if not getattr(self, "excel_path", None):
             return
-        n = len(self._selected_ids())
+        items = self._selected_ids()
+        n, copies = len(items), sum(c for _, _, c in items)
         chosen = sum(v.get() for v in self.sheet_vars.values())
         enabled = sum(1 for name, c in self._sheet_counts.items() if c > 0)
         (self.all_sheets.select if chosen == enabled else self.all_sheets.deselect)()
-        self.excel_info.configure(text=f"{n} ID seçilib · {chosen}/{len(self.sheet_vars)} vərəq")
+        self.excel_info.configure(text=f"{n} ID seçilib · {copies} nüsxə · {chosen}/{len(self.sheet_vars)} vərəq")
 
     def _on_mode(self, value):
         # Silmə rejimində tarix lazım deyil
@@ -306,7 +317,7 @@ class App(ctk.CTk):
             return
         start = self.start_from.get().strip()
         if start:
-            idx = next((i for i, (_, pid) in enumerate(ids) if pid == start), None)
+            idx = next((i for i, (_, pid, _) in enumerate(ids) if pid == start), None)
             if idx is None:
                 messagebox.showerror("Başlanğıc ID", f"{start} ID-si seçilmiş vərəqlərdə tapılmadı.")
                 return

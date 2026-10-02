@@ -13,6 +13,7 @@ Ara üz (pəncərə): python irshad_gui.py   — terminal rejimi aşağıdakı k
 İstifadə:
   python irshad_print.py ID.xlsx
   python irshad_print.py ID.xlsx --sheet Tv --sheet Ashagi   # yalnız bu vərəqlər
+  python irshad_print.py ID.xlsx --only-green                # yalnız yaşıl rəngli xanalar
   python irshad_print.py ID.xlsx --unique                    # təkrar ID-ləri bir dəfə əlavə et
   python irshad_print.py ID.xlsx --start-from 104737         # bu ID-dən davam et
   python irshad_print.py ID.xlsx --dry-run                   # yalnız ID siyahısını göstər
@@ -54,9 +55,88 @@ HERE = Path(sys.executable if FROZEN else __file__).resolve().parent
 ID_RE = re.compile(r"\d{3,8}")
 
 
-def read_ids(xlsx_path, sheets=None, unique=False):
-    """Bütün vərəqlərdən (və ya seçilənlərdən) ID-ləri sütun-sütun, yuxarıdan aşağı oxuyur."""
-    wb = openpyxl.load_workbook(xlsx_path, data_only=True)  # formulların hesablanmış dəyəri
+MAX_COPIES = 99  # Excel-də ID-nin yanındakı 1–99 arası rəqəm = nüsxə sayı
+
+
+def _theme_colors(wb):
+    """Workbook temasının rəngləri (Excel-in tema indeksi sırası ilə)."""
+    import xml.etree.ElementTree as ET
+
+    default = ["FFFFFF", "000000", "E7E6E6", "44546A", "4472C4", "ED7D31",
+               "A5A5A5", "FFC000", "5B9BD5", "70AD47"]
+    try:
+        ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+        scheme = ET.fromstring(wb.loaded_theme).find(".//a:clrScheme", ns)
+        vals = []
+        for child in list(scheme)[:10]:  # dk1, lt1, dk2, lt2, accent1..6
+            el = child[0]
+            vals.append(el.get("lastClr") or el.get("val"))
+        # Excel tema indeksində açıq/tünd yerləri dəyişikdir: 0=lt1, 1=dk1, 2=lt2, 3=dk2
+        vals[0], vals[1], vals[2], vals[3] = vals[1], vals[0], vals[3], vals[2]
+        return vals
+    except Exception:
+        return default
+
+
+def _apply_tint(rgb, tint):
+    import colorsys
+
+    r, g, b = (int(rgb[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    l = l * (1 + tint) if tint < 0 else l + (1 - l) * tint
+    return tuple(round(c * 255) for c in colorsys.hls_to_rgb(h, l, s))
+
+
+def cell_rgb(cell, theme):
+    """Xananın fon rəngi (r, g, b) və ya None."""
+    from openpyxl.styles.colors import COLOR_INDEX
+
+    fill = cell.fill
+    if not fill or fill.fill_type != "solid":
+        return None
+    c = fill.fgColor
+    rgb = None
+    if c.type == "rgb" and isinstance(c.rgb, str) and len(c.rgb) >= 6:
+        rgb = c.rgb[-6:]
+    elif c.type == "theme" and c.theme is not None and c.theme < len(theme):
+        rgb = theme[c.theme]
+    elif c.type == "indexed" and c.indexed is not None and c.indexed < len(COLOR_INDEX):
+        rgb = COLOR_INDEX[c.indexed][-6:]
+    if not rgb or rgb in ("000000",) and c.type == "indexed":
+        return None
+    return _apply_tint(rgb, c.tint or 0)
+
+
+def is_green(rgb):
+    """Rəng yaşıl çalardadırmı (açıq yaşıldan tünd yaşıla qədər)."""
+    import colorsys
+
+    if not rgb:
+        return False
+    h, s, v = colorsys.rgb_to_hsv(*(x / 255 for x in rgb))
+    return 70 <= h * 360 <= 170 and s >= 0.12 and v >= 0.25
+
+
+def _as_int(v):
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str) and v.strip().isdigit():
+        return int(v.strip())
+    return None
+
+
+def read_ids(xlsx_path, sheets=None, unique=False, only_green=False):
+    """Excel-dən [(vərəq, ID, nüsxə sayı), ...] siyahısı.
+
+    ID-lər sütun-sütun, yuxarıdan aşağı oxunur. Nüsxə sayı: eyni sətirdə ID-nin
+    sağındakı (növbəti ID-yə qədər) ilk 1–99 arası rəqəm; yoxdursa 1.
+    only_green: yalnız ID xanası (və ya yanındakı ad xanası) yaşıl rəngli olanlar.
+    """
+    # Rəng lazımdırsa formatla açılır; dəyərlər üçün həmişə hesablanmış (data_only) nüsxə
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    theme = _theme_colors(wb) if only_green else None
     ids, seen = [], set()
     for ws in wb.worksheets:
         if sheets and ws.title not in sheets:
@@ -69,17 +149,32 @@ def read_ids(xlsx_path, sheets=None, unique=False):
                 s = str(v).strip() if v is not None else ""
                 if not ID_RE.fullmatch(s):
                     continue
+                if only_green:
+                    colors = [cell_rgb(ws.cell(row, col), theme)]
+                    if colors[0] is None and col < ws.max_column:  # ID xanası rəngsizdirsə, ad xanası
+                        colors.append(cell_rgb(ws.cell(row, col + 1), theme))
+                    if not any(is_green(c) for c in colors):
+                        continue
+                count = 1
+                for c2 in range(col + 1, min(col + 5, ws.max_column + 1)):
+                    v2 = ws.cell(row, c2).value
+                    if v2 is not None and ID_RE.fullmatch(str(_as_int(v2) if _as_int(v2) is not None else v2).strip()):
+                        break  # növbəti ID blokuna çatdıq
+                    n = _as_int(v2)
+                    if n is not None and 1 <= n <= MAX_COPIES:
+                        count = n
+                        break
                 if unique and s in seen:
                     continue
                 seen.add(s)
-                ids.append((ws.title, s))
+                ids.append((ws.title, s, count))
     return ids
 
 
-def list_sheets(xlsx_path):
+def list_sheets(xlsx_path, only_green=False):
     """[(vərəq adı, ID sayı), ...] — ara üzdə vərəq seçimi üçün."""
     counts = {}
-    for sheet, _ in read_ids(xlsx_path):
+    for sheet, _, _ in read_ids(xlsx_path, only_green=only_green):
         counts[sheet] = counts.get(sheet, 0) + 1
     wb = openpyxl.load_workbook(xlsx_path, read_only=True)
     return [(name, counts.get(name, 0)) for name in wb.sheetnames]
@@ -221,7 +316,20 @@ def search_input(page):
     return page.locator("input[placeholder='Axtar']").first
 
 
-def search_and_add(page, product_id, timeout_ms, remove=False):
+def set_copies(row, product_id, copies):
+    """Sətrin "Nüsxə sayı" xanasını yazır (saytın localStorage-i də yenilənsin deyə change ilə)."""
+    box = row.locator(f'[data-count="{product_id}"]').first
+    if not box.count():
+        box = row.locator("input.printCount").first
+    if not box.count():
+        return False
+    if box.input_value() != str(copies):
+        box.fill(str(copies))
+        box.dispatch_event("change")
+    return True
+
+
+def search_and_add(page, product_id, timeout_ms, remove=False, copies=1):
     box = search_input(page)
     box.fill("")
     box.fill(product_id)
@@ -261,8 +369,10 @@ def search_and_add(page, product_id, timeout_ms, remove=False):
 
     if not checkbox.count():
         return "checkbox tapılmadı"
+    # Əvvəl nüsxə sayı, sonra checkbox — sayt seçimi yadda saxlayanda sayı da götürür
+    copies_ok = set_copies(row, product_id, copies)
     checkbox.check()  # artıq işarəlidirsə toxunmur
-    selected = "seçildi"
+    selected = "seçildi" if copies_ok or copies == 1 else "seçildi (nüsxə xanası tapılmadı!)"
 
     add_btn = row.locator(
         "a.btn-success, button.btn-success, .btn-success, button:has(i.fa-plus), a:has(i.fa-plus)"
@@ -286,6 +396,8 @@ def main():
     ap = argparse.ArgumentParser(description="İrşad Admin çap siyahısına ID-ləri avtomatik əlavə et")
     ap.add_argument("excel", nargs="?", help="ID-ləri olan Excel faylı (.xlsx)")
     ap.add_argument("--sheet", action="append", help="Yalnız bu vərəq(lər) (bir neçə dəfə yazmaq olar)")
+    ap.add_argument("--only-green", action="store_true",
+                    help="Yalnız Excel-də yaşıl rəngli xanalardakı ID-lər")
     ap.add_argument("--unique", action="store_true", help="Təkrar olunan ID-ləri bir dəfə əlavə et")
     ap.add_argument("--remove", action="store_true",
                     help="Əlavə etmək əvəzinə Excel-dəki ID-ləri çap siyahısından SİL (qırmızı − düyməsi)")
@@ -302,16 +414,16 @@ def main():
     if not args.excel:
         args.excel = input("Excel faylını bura sürükləyin və Enter basın: ").strip().strip('"')
 
-    ids = read_ids(args.excel, args.sheet, args.unique)
+    ids = read_ids(args.excel, args.sheet, args.unique, args.only_green)
     if args.start_from:
-        idx = next((i for i, (_, pid) in enumerate(ids) if pid == args.start_from), None)
+        idx = next((i for i, (_, pid, _) in enumerate(ids) if pid == args.start_from), None)
         if idx is None:
             raise SystemExit(f"{args.start_from} ID-si Excel-də tapılmadı.")
         ids = ids[idx:]
     print(f"{len(ids)} ID tapıldı.")
     if args.dry_run:
-        for sheet, pid in ids:
-            print(f"  [{sheet}] {pid}")
+        for sheet, pid, copies in ids:
+            print(f"  [{sheet}] {pid}  x{copies}")
         return
 
     date_range = "" if args.remove else args.date
@@ -340,7 +452,7 @@ def run_job(ids, date_range, remove=False, timeout=10, batch=0, reset=False,
 
     with sync_playwright() as p, open(log_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
-        writer.writerow(["vərəq", "ID", "nəticə"])
+        writer.writerow(["vərəq", "ID", "nüsxə", "nəticə"])
         browser = open_real_browser(p, log)
         context = browser.contexts[0]
         page = context.pages[0] if context.pages else context.new_page()
@@ -371,19 +483,19 @@ def run_job(ids, date_range, remove=False, timeout=10, batch=0, reset=False,
                     log(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
 
         batch = batch if batch > 0 and not remove else len(ids)
-        for n, (sheet, pid) in enumerate(ids, 1):
+        for n, (sheet, pid, copies) in enumerate(ids, 1):
             if should_stop and should_stop():
                 log("Dayandırıldı.")
                 break
             try:
-                result = search_and_add(page, pid, timeout * 1000, remove)
+                result = search_and_add(page, pid, timeout * 1000, remove, copies)
             except Exception as e:  # səhifə ilişibsə yenidən yüklə və davam et
                 result = f"xəta: {e.__class__.__name__}"
                 page.goto(PRINT_URL, wait_until="networkidle")
             counts[result] = counts.get(result, 0) + 1
-            writer.writerow([sheet, pid, result])
+            writer.writerow([sheet, pid, copies, result])
             f.flush()
-            log(f"[{n}/{len(ids)}] {sheet} | {pid} → {result}")
+            log(f"[{n}/{len(ids)}] {sheet} | {pid} x{copies} → {result}")
             if progress:
                 progress(n, len(ids))
 

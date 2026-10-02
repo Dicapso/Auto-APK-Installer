@@ -20,6 +20,7 @@ bir-bir axtarır və hər nəticənin yaşıl **+** düyməsini basır.
 ```
 python irshad_print.py ID.xlsx                 # bütün vərəqlər
 python irshad_print.py ID.xlsx --sheet Tv      # yalnız "Tv" vərəqi
+python irshad_print.py ID.xlsx --only-green    # yalnız yaşıl rəngli xanalar
 python irshad_print.py ID.xlsx --unique        # təkrar ID-ləri bir dəfə
 python irshad_print.py ID.xlsx --start-from 104737   # yarımçıq qalıbsa davam et
 python irshad_print.py ID.xlsx --dry-run       # yalnız ID siyahısına bax
