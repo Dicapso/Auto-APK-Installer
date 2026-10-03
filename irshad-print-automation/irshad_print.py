@@ -55,6 +55,22 @@ FROZEN = getattr(sys, "frozen", False)  # .exe kimi işləyir (PyInstaller)
 HERE = Path(sys.executable if FROZEN else __file__).resolve().parent
 ID_RE = re.compile(r"\d{3,8}")
 
+# Filial kilidi: build_exe.bat <e-poçt> ilə qurulan exe yalnız bu hesab(lar)la işləyir.
+# branch_lock.py qurulum zamanı yaradılır (git-ə düşmür); yoxdursa kilid yoxdur.
+try:
+    from branch_lock import ALLOWED_EMAILS
+except ImportError:
+    ALLOWED_EMAILS = []
+ALLOWED_EMAILS = [e.strip().lower() for e in ALLOWED_EMAILS if e.strip()]
+
+
+def email_allowed(email):
+    return not ALLOWED_EMAILS or (email or "").strip().lower() in ALLOWED_EMAILS
+
+
+def lock_message():
+    return "Bu proqram yalnız bu hesab üçündür: " + ", ".join(ALLOWED_EMAILS)
+
 
 MAX_COPIES = 99  # Excel-də ID-nin yanındakı 1–99 arası rəqəm = nüsxə sayı
 
@@ -207,7 +223,23 @@ def login(page, email, password):
 
 
 def wait_for_manual_login(page, log=print, should_stop=None, minutes=10):
-    """credentials.txt yoxdursa: istifadəçi açılan brauzerdə özü giriş edənə qədər gözlə."""
+    """credentials.txt yoxdursa: istifadəçi açılan brauzerdə özü giriş edənə qədər gözlə.
+
+    Qaytarır: giriş formasında yazılmış e-poçt (filial kilidini yoxlamaq üçün) və ya None.
+    """
+    from urllib.parse import parse_qs
+
+    typed = {"email": None}
+
+    def on_request(r):
+        # Giriş formasının göndərilməsindən e-poçtu götür (şifrə heç yerdə saxlanılmır)
+        if r.method == "POST" and "/login" in r.url:
+            for values in parse_qs(r.post_data or "").values():
+                for v in values:
+                    if "@" in v:
+                        typed["email"] = v.strip()
+
+    page.on("request", on_request)
     log("Açılan brauzerdə sayta giriş edin — proqram gözləyir…")
     deadline = time.time() + minutes * 60
     while "/login" in page.url:
@@ -216,7 +248,16 @@ def wait_for_manual_login(page, log=print, should_stop=None, minutes=10):
         if time.time() > deadline:
             raise SystemExit("Giriş edilmədi — vaxt bitdi.")
         page.wait_for_timeout(1000)
+    page.remove_listener("request", on_request)
     log("Giriş edildi.")
+    return typed["email"]
+
+
+def clear_site_cookies(context, page):
+    """Sayt sessiyasını sil (çıxış) — filial kilidində hər dəfə yenidən giriş tələb olunur."""
+    cdp = context.new_cdp_session(page)
+    cdp.send("Storage.clearDataForOrigin", {"origin": BASE_URL, "storageTypes": "cookies"})
+    cdp.detach()
 
 
 def common_ids(items, other_path, other_green=False):
@@ -484,13 +525,24 @@ def run_job(ids, date_range, timeout=10, batch=0, reset=False,
             cdp.detach()
             log("Saytın brauzerdəki məlumatı təmizləndi.")
 
+        if ALLOWED_EMAILS:
+            # Filial kilidi: köhnə sessiyanın hansı hesaba aid olduğunu bilmirik — yenidən giriş
+            clear_site_cookies(context, page)
+            log("Filial kilidi: " + ", ".join(ALLOWED_EMAILS))
+
         page.goto(PRINT_URL, wait_until="networkidle")
         if "/login" in page.url:  # profil əvvəldən giriş etməyibsə
             creds = credentials()
             if creds:
+                if not email_allowed(creds[0]):
+                    raise SystemExit(lock_message() + f" (credentials.txt: {creds[0]})")
                 login(page, *creds)
             else:
-                wait_for_manual_login(page, log, should_stop)
+                email = wait_for_manual_login(page, log, should_stop)
+                if ALLOWED_EMAILS and not email_allowed(email):
+                    clear_site_cookies(context, page)  # icazəsiz hesabdan çıx
+                    page.goto(PRINT_URL, wait_until="domcontentloaded")
+                    raise SystemExit(lock_message() + (f" (giriş edilən: {email})" if email else ""))
             page.goto(PRINT_URL, wait_until="networkidle")
 
         def prepare_for_print():

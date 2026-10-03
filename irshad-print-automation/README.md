@@ -50,3 +50,9 @@ yanında yaranır — bunları paylaşmayın.
 açarı ilə yalnız hər iki faylda yaşıl rəngli olan ortaq ID-lər seçilir. **Giriş:** `credentials.txt`
 varsa avtomatik; yoxdursa açılan brauzerdə özünüz giriş edirsiniz, proqram gözləyir.
 Endirim müddətini saytda özünüz seçirsiniz.
+
+## Filial kilidi
+`build_exe.bat irshadecemi2@gmail.com` → `dist\IrshadCap_irshadecemi2.exe`. Bu exe yalnız
+həmin hesabla işləyir: hər işə salmada köhnə sessiya silinir, yenidən giriş edilir
+(credentials.txt və ya əl ilə) və e-poçt uyğun gəlmirsə, proqram dayanır. Şifrə exe-yə
+yazılmır. Parametrsiz `build_exe.bat` kilidsiz `IrshadCap.exe` qurur.

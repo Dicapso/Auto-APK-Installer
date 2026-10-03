@@ -5,3 +5,4 @@ chrome-profile/
 build/
 dist/
 *.spec
+branch_lock.py

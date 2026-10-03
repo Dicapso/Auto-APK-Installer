@@ -103,6 +103,9 @@ class App(ctk.CTk):
                      anchor="w").pack(fill="x")
         ctk.CTkLabel(header, text="Excel-dəki məhsulları çap siyahısına avtomatik seçir",
                      text_color=TEXT_MUTED, anchor="w").pack(fill="x")
+        if core.ALLOWED_EMAILS:
+            ctk.CTkLabel(header, text="🔒 Filial: " + ", ".join(core.ALLOWED_EMAILS), text_color="#22c55e",
+                         anchor="w", font=ctk.CTkFont(size=12, weight="bold")).pack(fill="x", pady=(4, 0))
 
         # Excel faylı
         card = self._card(root, "EXCEL FAYLI")
