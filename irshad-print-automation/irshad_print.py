@@ -18,7 +18,7 @@ Ara üz (pəncərə): python irshad_gui.py   — terminal rejimi aşağıdakı k
   python irshad_print.py ID.xlsx --start-from 104737         # bu ID-dən davam et
   python irshad_print.py ID.xlsx --dry-run                   # yalnız ID siyahısını göstər
   python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
-  python irshad_print.py ID.xlsx --remove                    # ID-ləri çap siyahısından sil
+  python irshad_print.py ID.xlsx --compare ID2.xlsx          # yalnız hər iki faylda olan ID-lər
   python irshad_print.py ID.xlsx --reset                     # brauzerdəki köhnə siyahını sıfırla
   python irshad_print.py ID.xlsx --batch 50                  # hər 50 ID-dən sonra çap üçün dayan
 
@@ -205,6 +205,25 @@ def login(page, email, password):
         raise SystemExit("Giriş alınmadı — e-poçt/şifrəni yoxlayın.")
 
 
+def wait_for_manual_login(page, log=print, should_stop=None, minutes=10):
+    """credentials.txt yoxdursa: istifadəçi açılan brauzerdə özü giriş edənə qədər gözlə."""
+    log("Açılan brauzerdə sayta giriş edin — proqram gözləyir…")
+    deadline = time.time() + minutes * 60
+    while "/login" in page.url:
+        if should_stop and should_stop():
+            raise SystemExit("Dayandırıldı.")
+        if time.time() > deadline:
+            raise SystemExit("Giriş edilmədi — vaxt bitdi.")
+        page.wait_for_timeout(1000)
+    log("Giriş edildi.")
+
+
+def common_ids(items, other_path):
+    """items-dən yalnız ikinci Excel-də də olan ID-lər (sıra və nüsxə sayı birinci fayldan)."""
+    other = {pid for _, pid, _ in read_ids(other_path)}
+    return [it for it in items if it[1] in other], len(other)
+
+
 DATE_RE = re.compile(r"^\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})\s*$")
 
 
@@ -329,7 +348,7 @@ def set_copies(row, product_id, copies):
     return True
 
 
-def search_and_add(page, product_id, timeout_ms, remove=False, copies=1):
+def search_and_add(page, product_id, timeout_ms, copies=1):
     box = search_input(page)
     box.fill("")
     box.fill(product_id)
@@ -353,20 +372,6 @@ def search_and_add(page, product_id, timeout_ms, remove=False, copies=1):
     # çap edir — sayt onları brauzerin localStorage["print"] siyahısında saxlayır.
     checkbox = row.locator("input.check").first
     remove_sel = ".btn-danger, button:has(i.fa-minus), a:has(i.fa-minus)"
-    if remove:
-        if checkbox.count() and checkbox.is_checked():
-            checkbox.uncheck()
-        # siyahıdan çıxar: qırmızı "−" düyməsi
-        remove_btn = row.locator(remove_sel).first
-        if not remove_btn.count():
-            return "siyahıda deyil"
-        remove_btn.click()
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(300)
-        if not page.url.startswith(PRINT_URL):
-            page.goto(PRINT_URL, wait_until="networkidle")
-        return "silindi"
-
     if not checkbox.count():
         return "checkbox tapılmadı"
     # Əvvəl nüsxə sayı, sonra checkbox — sayt seçimi yadda saxlayanda sayı da götürür
@@ -399,8 +404,8 @@ def main():
     ap.add_argument("--only-green", action="store_true",
                     help="Yalnız Excel-də yaşıl rəngli xanalardakı ID-lər")
     ap.add_argument("--unique", action="store_true", help="Təkrar olunan ID-ləri bir dəfə əlavə et")
-    ap.add_argument("--remove", action="store_true",
-                    help="Əlavə etmək əvəzinə Excel-dəki ID-ləri çap siyahısından SİL (qırmızı − düyməsi)")
+    ap.add_argument("--compare", metavar="EXCEL2",
+                    help="İkinci Excel: yalnız hər iki faylda olan ID-lər seçilir")
     ap.add_argument("--batch", type=int, default=0,
                     help="Hər neçə ID-dən sonra çap üçün dayansın (0 = dayanmadan)")
     ap.add_argument("--reset", action="store_true",
@@ -415,6 +420,9 @@ def main():
         args.excel = input("Excel faylını bura sürükləyin və Enter basın: ").strip().strip('"')
 
     ids = read_ids(args.excel, args.sheet, args.unique, args.only_green)
+    if args.compare:
+        ids, n2 = common_ids(ids, args.compare)
+        print(f"İkinci faylda {n2} ID var; ortaq: {len(ids)}")
     if args.start_from:
         idx = next((i for i, (_, pid, _) in enumerate(ids) if pid == args.start_from), None)
         if idx is None:
@@ -426,7 +434,7 @@ def main():
             print(f"  [{sheet}] {pid}  x{copies}")
         return
 
-    date_range = "" if args.remove else args.date
+    date_range = args.date
     if date_range is None:
         date_range = input("Endirim müddəti (məs. 28.09.2026 - 30.09.2026, boş = seçmə): ").strip()
     if date_range:
@@ -435,16 +443,17 @@ def main():
         except ValueError as e:
             raise SystemExit(str(e))
 
-    run_job(ids, date_range, remove=args.remove, timeout=args.timeout,
+    run_job(ids, date_range, timeout=args.timeout,
             batch=args.batch, reset=args.reset)
 
 
-def run_job(ids, date_range, remove=False, timeout=10, batch=0, reset=False,
+def run_job(ids, date_range, timeout=10, batch=0, reset=False,
             log=print, progress=None, should_stop=None, credentials=None):
     """Əsas iş: ID-ləri saytda seçir. Həm terminal (CLI), həm də ara üz (GUI) istifadə edir.
 
     log(str) — mesaj; progress(n, total) — irəliləyiş; should_stop() — dayandırma sorğusu;
-    credentials() — (e-poçt, şifrə) qaytarır, yalnız giriş lazım olanda çağırılır.
+    credentials() — (e-poçt, şifrə) və ya None qaytarır, yalnız giriş lazım olanda çağırılır;
+    None olarsa, istifadəçinin brauzerdə özü giriş etməsi gözlənilir.
     """
     credentials = credentials or get_credentials
     log_path = HERE / f"netice_{datetime.now():%Y%m%d_%H%M%S}.csv"
@@ -469,7 +478,11 @@ def run_job(ids, date_range, remove=False, timeout=10, batch=0, reset=False,
 
         page.goto(PRINT_URL, wait_until="networkidle")
         if "/login" in page.url:  # profil əvvəldən giriş etməyibsə
-            login(page, *credentials())
+            creds = credentials()
+            if creds:
+                login(page, *creds)
+            else:
+                wait_for_manual_login(page, log, should_stop)
             page.goto(PRINT_URL, wait_until="networkidle")
 
         def prepare_for_print():
@@ -482,13 +495,13 @@ def run_job(ids, date_range, remove=False, timeout=10, batch=0, reset=False,
                 except Exception as e:
                     log(f"Endirim müddəti seçilə bilmədi ({e.__class__.__name__}) — əl ilə seçin.")
 
-        batch = batch if batch > 0 and not remove else len(ids)
+        batch = batch if batch > 0 else len(ids)
         for n, (sheet, pid, copies) in enumerate(ids, 1):
             if should_stop and should_stop():
                 log("Dayandırıldı.")
                 break
             try:
-                result = search_and_add(page, pid, timeout * 1000, remove, copies)
+                result = search_and_add(page, pid, timeout * 1000, copies)
             except Exception as e:  # səhifə ilişibsə yenidən yüklə və davam et
                 result = f"xəta: {e.__class__.__name__}"
                 page.goto(PRINT_URL, wait_until="networkidle")
@@ -508,8 +521,7 @@ def run_job(ids, date_range, remove=False, timeout=10, batch=0, reset=False,
                 page.on("dialog", accept_dialog)
                 page.goto(PRINT_URL, wait_until="networkidle")
 
-        if not remove:
-            prepare_for_print()
+        prepare_for_print()
 
         count = page.evaluate("() => { try { return JSON.parse(localStorage.getItem('print') || '[]').length }"
                               " catch (e) { return -1 } }")

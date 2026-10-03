@@ -1,8 +1,8 @@
 """
 İrşad Çap — ara üz (pəncərə).
 
-Excel faylı, vərəqlər, rejim, endirim müddəti və giriş məlumatları burada seçilir;
-iş başlayanda irəliləyiş və nəticələr eyni pəncərədə göstərilir.
+Excel faylı, vərəqlər, yaşıl filtr və (istəyə görə) müqayisə üçün ikinci Excel burada
+seçilir; iş başlayanda irəliləyiş və nəticələr eyni pəncərədə göstərilir.
 Əsas iş irshad_print.run_job() funksiyasındadır.
 """
 
@@ -10,7 +10,6 @@ import queue
 import sys
 import threading
 import traceback
-from datetime import date, timedelta
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
@@ -74,7 +73,7 @@ class App(ctk.CTk):
         self.card_bg = "#000000" if self.glass else CARD
         super().__init__(fg_color=bg)
         self.title("İrşad Çap")
-        self.geometry("620x860")
+        self.geometry("620x820")
         self.minsize(560, 640)
         self.after(50, lambda: apply_glass(self, self.glass))
 
@@ -82,9 +81,10 @@ class App(ctk.CTk):
         self.stop_flag = threading.Event()
         self.worker = None
         self.sheet_vars = {}
+        self.compare_path = None
+        self.compare_ids = set()
 
         self._build()
-        self._load_credentials()
         if excel_path:
             self._set_excel(excel_path)
         self.after(100, self._drain_events)
@@ -131,58 +131,22 @@ class App(ctk.CTk):
         self.sheet_box.pack(fill="x", pady=(6, 0))
         ctk.CTkLabel(self.sheet_box, text="Əvvəlcə Excel faylını seçin", text_color=TEXT_MUTED).pack(anchor="w")
 
-        # Rejim
-        card = self._card(root, "REJİM")
+        # Müqayisə üçün ikinci Excel
+        card = self._card(root, "MÜQAYİSƏ (İSTƏYƏ GÖRƏ)")
         card.pack(fill="x", pady=6)
-        self.mode = ctk.CTkSegmentedButton(card.body, values=["Çap üçün seç", "Siyahıdan sil"],
-                                           height=36, selected_color=ACCENT,
-                                           selected_hover_color=ACCENT_HOVER, command=self._on_mode)
-        self.mode.set("Çap üçün seç")
-        self.mode.pack(fill="x")
-
-        # Endirim müddəti
-        self.date_card = self._card(root, "ENDİRİM MÜDDƏTİ")
-        self.date_card.pack(fill="x", pady=6)
-        row = ctk.CTkFrame(self.date_card.body, fg_color="transparent")
-        row.pack(fill="x")
-        self.date_from = ctk.CTkEntry(row, placeholder_text="Başlanğıc  GG.AA.İİİİ", height=36)
-        self.date_from.pack(side="left", fill="x", expand=True)
-        ctk.CTkLabel(row, text="—", text_color=TEXT_MUTED).pack(side="left", padx=8)
-        self.date_to = ctk.CTkEntry(row, placeholder_text="Son  GG.AA.İİİİ", height=36)
-        self.date_to.pack(side="left", fill="x", expand=True)
-        quick = ctk.CTkFrame(self.date_card.body, fg_color="transparent")
-        quick.pack(fill="x", pady=(8, 0))
-        for label, days in (("Bu gün", 0), ("3 gün", 2), ("1 həftə", 6)):
-            ctk.CTkButton(quick, text=label, width=80, height=28, fg_color="transparent",
-                          border_width=1, border_color=CARD_BORDER, hover_color=CARD_BORDER,
-                          command=lambda d=days: self._quick_date(d)).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(quick, text="Təmizlə", width=80, height=28, fg_color="transparent",
-                      text_color=TEXT_MUTED, hover_color=CARD_BORDER,
-                      command=self._clear_date).pack(side="right")
-        ctk.CTkLabel(self.date_card.body, text="Boş qalsa, tarixə toxunulmur", text_color=TEXT_MUTED,
-                     anchor="w", font=ctk.CTkFont(size=11)).pack(fill="x", pady=(6, 0))
-
-        # Əlavə seçimlər
-        card = self._card(root, "ƏLAVƏ")
-        card.pack(fill="x", pady=6)
-        self.unique = ctk.CTkSwitch(card.body, text="Təkrar ID-ləri bir dəfə seç", progress_color=ACCENT)
-        self.unique.pack(anchor="w")
-        self.unique.configure(command=self._refresh_count)
         row = ctk.CTkFrame(card.body, fg_color="transparent")
-        row.pack(fill="x", pady=(10, 0))
-        ctk.CTkLabel(row, text="Bu ID-dən başla:").pack(side="left")
-        self.start_from = ctk.CTkEntry(row, placeholder_text="boş = əvvəldən", width=160, height=32)
-        self.start_from.pack(side="left", padx=(8, 0))
-
-        # Giriş
-        card = self._card(root, "GİRİŞ (yalnız brauzer giriş etməyibsə lazımdır)")
-        card.pack(fill="x", pady=6)
-        self.email = ctk.CTkEntry(card.body, placeholder_text="E-poçt", height=36)
-        self.email.pack(fill="x")
-        self.password = ctk.CTkEntry(card.body, placeholder_text="Şifrə", show="•", height=36)
-        self.password.pack(fill="x", pady=(8, 0))
-        self.remember = ctk.CTkCheckBox(card.body, text="Bu kompüterdə yadda saxla (credentials.txt)")
-        self.remember.pack(anchor="w", pady=(8, 0))
+        row.pack(fill="x")
+        self.compare_entry = ctk.CTkEntry(row, placeholder_text="İkinci Excel seçilməyib", height=36)
+        self.compare_entry.pack(side="left", fill="x", expand=True)
+        self.compare_entry.configure(state="disabled")
+        ctk.CTkButton(row, text="Seç…", width=70, height=36, fg_color=ACCENT,
+                      hover_color=ACCENT_HOVER, command=self._pick_compare).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(row, text="✕", width=36, height=36, fg_color="transparent", border_width=1,
+                      border_color=CARD_BORDER, hover_color=CARD_BORDER,
+                      command=self._clear_compare).pack(side="left", padx=(6, 0))
+        self.compare_info = ctk.CTkLabel(card.body, text="Seçilsə, yalnız HƏR İKİ faylda olan ID-lər çapa verilir",
+                                         text_color=TEXT_MUTED, anchor="w", font=ctk.CTkFont(size=11))
+        self.compare_info.pack(fill="x", pady=(6, 0))
 
         # Başlat / Dayandır
         row = ctk.CTkFrame(root, fg_color="transparent")
@@ -210,15 +174,6 @@ class App(ctk.CTk):
         self.log_box.configure(state="disabled")
 
     # ---------- köməkçilər ----------
-    def _load_credentials(self):
-        cred = core.HERE / "credentials.txt"
-        if cred.exists():
-            lines = [l.strip() for l in cred.read_text(encoding="utf-8").splitlines() if l.strip()]
-            if len(lines) >= 2:
-                self.email.insert(0, lines[0])
-                self.password.insert(0, lines[1])
-                self.remember.select()
-
     def _pick_excel(self):
         path = filedialog.askopenfilename(title="Excel faylını seçin",
                                           filetypes=[("Excel", "*.xlsx *.xlsm"), ("Hamısı", "*.*")])
@@ -232,10 +187,7 @@ class App(ctk.CTk):
             messagebox.showerror("Xəta", f"Excel faylı oxunmadı:\n{e}")
             return
         self.excel_path = path
-        self.excel_entry.configure(state="normal")
-        self.excel_entry.delete(0, "end")
-        self.excel_entry.insert(0, path)
-        self.excel_entry.configure(state="disabled")
+        self._set_entry(self.excel_entry, path)
 
         for w in self.sheet_box.winfo_children():
             w.destroy()
@@ -263,37 +215,59 @@ class App(ctk.CTk):
             var.set(on and self._sheet_counts.get(name, 0) > 0)
         self._refresh_count()
 
-    def _selected_ids(self):
+    def _pick_compare(self):
+        path = filedialog.askopenfilename(title="Müqayisə üçün ikinci Excel",
+                                          filetypes=[("Excel", "*.xlsx *.xlsm"), ("Hamısı", "*.*")])
+        if not path:
+            return
+        try:
+            ids = {pid for _, pid, _ in core.read_ids(path)}
+        except Exception as e:
+            messagebox.showerror("Xəta", f"Excel faylı oxunmadı:\n{e}")
+            return
+        self.compare_path, self.compare_ids = path, ids
+        self._set_entry(self.compare_entry, path)
+        self._refresh_count()
+
+    def _clear_compare(self):
+        self.compare_path, self.compare_ids = None, set()
+        self._set_entry(self.compare_entry, "")
+        self.compare_info.configure(text="Seçilsə, yalnız HƏR İKİ faylda olan ID-lər çapa verilir")
+        self._refresh_count()
+
+    @staticmethod
+    def _set_entry(entry, text):
+        entry.configure(state="normal")
+        entry.delete(0, "end")
+        entry.insert(0, text)
+        entry.configure(state="disabled")
+
+    def _first_file_ids(self):
         sheets = [n for n, v in self.sheet_vars.items() if v.get()]
         if not sheets:
             return []
-        return core.read_ids(self.excel_path, sheets, bool(self.unique.get()), bool(self.only_green.get()))
+        # Eyni ID bir dəfə seçilir (nüsxə sayı ilk rast gəlinən sətirdən)
+        return core.read_ids(self.excel_path, sheets, True, bool(self.only_green.get()))
+
+    def _selected_ids(self):
+        items = self._first_file_ids()
+        if self.compare_path:
+            items = [it for it in items if it[1] in self.compare_ids]
+        return items
 
     def _refresh_count(self):
         if not getattr(self, "excel_path", None):
             return
+        first = self._first_file_ids()
         items = self._selected_ids()
         n, copies = len(items), sum(c for _, _, c in items)
+        if self.compare_path:
+            self.compare_info.configure(
+                text=f"İkinci faylda {len(self.compare_ids)} ID · 1-ci faylda {len(first)} · ortaq: {n}")
         chosen = sum(v.get() for v in self.sheet_vars.values())
         enabled = sum(1 for name, c in self._sheet_counts.items() if c > 0)
         (self.all_sheets.select if chosen == enabled else self.all_sheets.deselect)()
         self.excel_info.configure(text=f"{n} ID seçilib · {copies} nüsxə · {chosen}/{len(self.sheet_vars)} vərəq")
-
-    def _on_mode(self, value):
-        # Silmə rejimində tarix lazım deyil
-        state = "disabled" if value == "Siyahıdan sil" else "normal"
-        self.date_from.configure(state=state)
-        self.date_to.configure(state=state)
-
-    def _quick_date(self, days):
-        today = date.today()
-        for entry, d in ((self.date_from, today), (self.date_to, today + timedelta(days=days))):
-            entry.delete(0, "end")
-            entry.insert(0, d.strftime("%d.%m.%Y"))
-
-    def _clear_date(self):
-        self.date_from.delete(0, "end")
-        self.date_to.delete(0, "end")
 
     def _log(self, text):
         self.log_box.configure(state="normal")
@@ -313,34 +287,20 @@ class App(ctk.CTk):
             return
         ids = self._selected_ids()
         if not ids:
-            messagebox.showwarning("Vərəqlər", "Ən azı bir vərəq seçin.")
+            if self.compare_path and self._first_file_ids():
+                messagebox.showwarning("Müqayisə", "İki faylda ortaq ID yoxdur.")
+            else:
+                messagebox.showwarning("Vərəqlər", "Ən azı bir vərəq seçin.")
             return
-        start = self.start_from.get().strip()
-        if start:
-            idx = next((i for i, (_, pid, _) in enumerate(ids) if pid == start), None)
-            if idx is None:
-                messagebox.showerror("Başlanğıc ID", f"{start} ID-si seçilmiş vərəqlərdə tapılmadı.")
-                return
-            ids = ids[idx:]
-
-        remove = self.mode.get() == "Siyahıdan sil"
-        date_range = ""
-        a, b = self.date_from.get().strip(), self.date_to.get().strip()
-        if not remove and (a or b):
-            try:
-                date_range = core.normalize_date_range(f"{a} - {b or a}")
-            except ValueError as e:
-                messagebox.showerror("Endirim müddəti", str(e))
-                return
-
-        email, password = self.email.get().strip(), self.password.get()
-        if self.remember.get() and email and password:
-            (core.HERE / "credentials.txt").write_text(f"{email}\n{password}\n", encoding="utf-8")
 
         def credentials():
-            if not email or not password:
-                raise SystemExit("Brauzer giriş etməyib — e-poçt və şifrəni yazın.")
-            return email, password
+            # credentials.txt varsa avtomatik giriş; yoxdursa istifadəçi brauzerdə özü giriş edir
+            cred = core.HERE / "credentials.txt"
+            if cred.exists():
+                lines = [l.strip() for l in cred.read_text(encoding="utf-8").splitlines() if l.strip()]
+                if len(lines) >= 2:
+                    return lines[0], lines[1]
+            return None
 
         self.stop_flag.clear()
         self.progress.set(0)
@@ -353,7 +313,7 @@ class App(ctk.CTk):
         def work():
             try:
                 core.run_job(
-                    ids, date_range, remove=remove,
+                    ids, "",
                     log=lambda m: self.events.put(("log", m)),
                     progress=lambda n, t: self.events.put(("progress", (n, t))),
                     should_stop=self.stop_flag.is_set,
