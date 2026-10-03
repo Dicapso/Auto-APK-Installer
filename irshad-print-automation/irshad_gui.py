@@ -144,6 +144,9 @@ class App(ctk.CTk):
         ctk.CTkButton(row, text="✕", width=36, height=36, fg_color="transparent", border_width=1,
                       border_color=CARD_BORDER, hover_color=CARD_BORDER,
                       command=self._clear_compare).pack(side="left", padx=(6, 0))
+        self.compare_green = ctk.CTkSwitch(card.body, text="Hər iki faylda yaşıl olanlar", progress_color="#22c55e",
+                                           command=self._on_compare_green)
+        self.compare_green.pack(anchor="w", pady=(8, 0))
         self.compare_info = ctk.CTkLabel(card.body, text="Seçilsə, yalnız HƏR İKİ faylda olan ID-lər çapa verilir",
                                          text_color=TEXT_MUTED, anchor="w", font=ctk.CTkFont(size=11))
         self.compare_info.pack(fill="x", pady=(6, 0))
@@ -206,6 +209,10 @@ class App(ctk.CTk):
 
     def _on_green(self):
         # Yaşıl filtr dəyişəndə vərəqlərdəki ID sayları yenidən hesablanır
+        if not self.only_green.get() and self.compare_green.get():
+            self.compare_green.deselect()  # "hər iki faylda yaşıl" artıq keçərli deyil
+            if self.compare_path:
+                self._load_compare_ids()
         if getattr(self, "excel_path", None):
             self._set_excel(self.excel_path)
 
@@ -220,14 +227,27 @@ class App(ctk.CTk):
                                           filetypes=[("Excel", "*.xlsx *.xlsm"), ("Hamısı", "*.*")])
         if not path:
             return
+        self.compare_path = path
+        self._set_entry(self.compare_entry, path)
+        self._load_compare_ids()
+
+    def _load_compare_ids(self):
         try:
-            ids = {pid for _, pid, _ in core.read_ids(path)}
+            self.compare_ids = {pid for _, pid, _ in
+                                core.read_ids(self.compare_path, only_green=bool(self.compare_green.get()))}
         except Exception as e:
             messagebox.showerror("Xəta", f"Excel faylı oxunmadı:\n{e}")
+            self._clear_compare()
             return
-        self.compare_path, self.compare_ids = path, ids
-        self._set_entry(self.compare_entry, path)
         self._refresh_count()
+
+    def _on_compare_green(self):
+        # "Hər iki faylda yaşıl": birinci faylda da yaşıl filtr açılır
+        if self.compare_green.get() and not self.only_green.get():
+            self.only_green.select()
+            self._on_green()
+        if self.compare_path:
+            self._load_compare_ids()
 
     def _clear_compare(self):
         self.compare_path, self.compare_ids = None, set()
@@ -262,8 +282,10 @@ class App(ctk.CTk):
         items = self._selected_ids()
         n, copies = len(items), sum(c for _, _, c in items)
         if self.compare_path:
+            green2 = " yaşıl" if self.compare_green.get() else ""
+            green1 = " yaşıl" if self.only_green.get() else ""
             self.compare_info.configure(
-                text=f"İkinci faylda {len(self.compare_ids)} ID · 1-ci faylda {len(first)} · ortaq: {n}")
+                text=f"İkinci faylda {len(self.compare_ids)}{green2} ID · 1-ci faylda {len(first)}{green1} · ortaq: {n}")
         chosen = sum(v.get() for v in self.sheet_vars.values())
         enabled = sum(1 for name, c in self._sheet_counts.items() if c > 0)
         (self.all_sheets.select if chosen == enabled else self.all_sheets.deselect)()

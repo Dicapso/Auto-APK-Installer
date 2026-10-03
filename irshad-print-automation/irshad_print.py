@@ -19,6 +19,7 @@ Ara üz (pəncərə): python irshad_gui.py   — terminal rejimi aşağıdakı k
   python irshad_print.py ID.xlsx --dry-run                   # yalnız ID siyahısını göstər
   python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
   python irshad_print.py ID.xlsx --compare ID2.xlsx          # yalnız hər iki faylda olan ID-lər
+  python irshad_print.py ID.xlsx --compare ID2.xlsx --compare-green   # hər iki faylda yaşıl olanlar
   python irshad_print.py ID.xlsx --reset                     # brauzerdəki köhnə siyahını sıfırla
   python irshad_print.py ID.xlsx --batch 50                  # hər 50 ID-dən sonra çap üçün dayan
 
@@ -218,9 +219,12 @@ def wait_for_manual_login(page, log=print, should_stop=None, minutes=10):
     log("Giriş edildi.")
 
 
-def common_ids(items, other_path):
-    """items-dən yalnız ikinci Excel-də də olan ID-lər (sıra və nüsxə sayı birinci fayldan)."""
-    other = {pid for _, pid, _ in read_ids(other_path)}
+def common_ids(items, other_path, other_green=False):
+    """items-dən yalnız ikinci Excel-də də olan ID-lər (sıra və nüsxə sayı birinci fayldan).
+
+    other_green: ikinci faylda da yalnız yaşıl xanalar nəzərə alınır.
+    """
+    other = {pid for _, pid, _ in read_ids(other_path, only_green=other_green)}
     return [it for it in items if it[1] in other], len(other)
 
 
@@ -406,6 +410,8 @@ def main():
     ap.add_argument("--unique", action="store_true", help="Təkrar olunan ID-ləri bir dəfə əlavə et")
     ap.add_argument("--compare", metavar="EXCEL2",
                     help="İkinci Excel: yalnız hər iki faylda olan ID-lər seçilir")
+    ap.add_argument("--compare-green", action="store_true",
+                    help="Hər iki faylda yaşıl olan ortaq ID-lər (--only-green ilə birlikdə)")
     ap.add_argument("--batch", type=int, default=0,
                     help="Hər neçə ID-dən sonra çap üçün dayansın (0 = dayanmadan)")
     ap.add_argument("--reset", action="store_true",
@@ -419,9 +425,11 @@ def main():
     if not args.excel:
         args.excel = input("Excel faylını bura sürükləyin və Enter basın: ").strip().strip('"')
 
+    if args.compare_green:
+        args.only_green = True
     ids = read_ids(args.excel, args.sheet, args.unique, args.only_green)
     if args.compare:
-        ids, n2 = common_ids(ids, args.compare)
+        ids, n2 = common_ids(ids, args.compare, args.compare_green)
         print(f"İkinci faylda {n2} ID var; ortaq: {len(ids)}")
     if args.start_from:
         idx = next((i for i, (_, pid, _) in enumerate(ids) if pid == args.start_from), None)

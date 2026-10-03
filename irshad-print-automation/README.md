@@ -25,6 +25,7 @@ python irshad_print.py ID.xlsx --unique        # təkrar ID-ləri bir dəfə
 python irshad_print.py ID.xlsx --start-from 104737   # yarımçıq qalıbsa davam et
 python irshad_print.py ID.xlsx --dry-run       # yalnız ID siyahısına bax
 python irshad_print.py ID.xlsx --compare ID2.xlsx   # yalnız hər iki faylda olan ID-lər
+python irshad_print.py ID.xlsx --compare ID2.xlsx --compare-green   # hər iki faylda yaşıl olanlar
 python irshad_print.py ID.xlsx --reset         # skript brauzerindəki köhnə siyahını sıfırla 
 python irshad_print.py ID.xlsx --batch 50      # hər 50 ID-dən sonra çap üçün dayan 
 python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
@@ -45,6 +46,7 @@ faylını verin (Python lazım deyil). Exe-ni iki dəfə klikləyin və ya Excel
 yanında yaranır — bunları paylaşmayın.
 
 **Müqayisə:** ikinci Excel seçilsə, yalnız hər iki faylda olan ID-lər çapa verilir
-(sıra, vərəq/yaşıl filtr və nüsxə sayı birinci fayldan). **Giriş:** `credentials.txt`
+(sıra, vərəq/yaşıl filtr və nüsxə sayı birinci fayldan). "Hər iki faylda yaşıl olanlar"
+açarı ilə yalnız hər iki faylda yaşıl rəngli olan ortaq ID-lər seçilir. **Giriş:** `credentials.txt`
 varsa avtomatik; yoxdursa açılan brauzerdə özünüz giriş edirsiniz, proqram gözləyir.
 Endirim müddətini saytda özünüz seçirsiniz.
