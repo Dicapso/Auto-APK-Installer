@@ -147,7 +147,7 @@ class App(ctk.CTk):
         ctk.CTkButton(row, text="✕", width=36, height=36, fg_color="transparent", border_width=1,
                       border_color=CARD_BORDER, hover_color=CARD_BORDER,
                       command=self._clear_compare).pack(side="left", padx=(6, 0))
-        self.compare_green = ctk.CTkSwitch(card.body, text="Hər iki faylda yaşıl olanlar", progress_color="#22c55e",
+        self.compare_green = ctk.CTkSwitch(card.body, text="Ortaq ID-lərdən 2-ci faylda yaşıl olanlar", progress_color="#22c55e",
                                            command=self._on_compare_green)
         self.compare_green.pack(anchor="w", pady=(8, 0))
         self.compare_info = ctk.CTkLabel(card.body, text="Seçilsə, yalnız HƏR İKİ faylda olan ID-lər çapa verilir",
@@ -212,10 +212,6 @@ class App(ctk.CTk):
 
     def _on_green(self):
         # Yaşıl filtr dəyişəndə vərəqlərdəki ID sayları yenidən hesablanır
-        if not self.only_green.get() and self.compare_green.get():
-            self.compare_green.deselect()  # "hər iki faylda yaşıl" artıq keçərli deyil
-            if self.compare_path:
-                self._load_compare_ids()
         if getattr(self, "excel_path", None):
             self._set_excel(self.excel_path)
 
@@ -245,10 +241,7 @@ class App(ctk.CTk):
         self._refresh_count()
 
     def _on_compare_green(self):
-        # "Hər iki faylda yaşıl": birinci faylda da yaşıl filtr açılır
-        if self.compare_green.get() and not self.only_green.get():
-            self.only_green.select()
-            self._on_green()
+        # Ortaq ID-lərdən yalnız 2-ci faylda yaşıl rəngli olanlar (1-ci faylın rənginə baxılmır)
         if self.compare_path:
             self._load_compare_ids()
 

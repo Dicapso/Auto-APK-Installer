@@ -19,7 +19,7 @@ Ara üz (pəncərə): python irshad_gui.py   — terminal rejimi aşağıdakı k
   python irshad_print.py ID.xlsx --dry-run                   # yalnız ID siyahısını göstər
   python irshad_print.py ID.xlsx --date "28.09.2026 - 30.09.2026"   # endirim müddəti
   python irshad_print.py ID.xlsx --compare ID2.xlsx          # yalnız hər iki faylda olan ID-lər
-  python irshad_print.py ID.xlsx --compare ID2.xlsx --compare-green   # hər iki faylda yaşıl olanlar
+  python irshad_print.py ID.xlsx --compare ID2.xlsx --compare-green   # ortaqlardan 2-ci faylda yaşıl olanlar
   python irshad_print.py ID.xlsx --reset                     # brauzerdəki köhnə siyahını sıfırla
   python irshad_print.py ID.xlsx --batch 50                  # hər 50 ID-dən sonra çap üçün dayan
 
@@ -452,7 +452,7 @@ def main():
     ap.add_argument("--compare", metavar="EXCEL2",
                     help="İkinci Excel: yalnız hər iki faylda olan ID-lər seçilir")
     ap.add_argument("--compare-green", action="store_true",
-                    help="Hər iki faylda yaşıl olan ortaq ID-lər (--only-green ilə birlikdə)")
+                    help="Ortaq ID-lərdən yalnız 2-ci faylda yaşıl rəngli olanlar")
     ap.add_argument("--batch", type=int, default=0,
                     help="Hər neçə ID-dən sonra çap üçün dayansın (0 = dayanmadan)")
     ap.add_argument("--reset", action="store_true",
@@ -466,8 +466,6 @@ def main():
     if not args.excel:
         args.excel = input("Excel faylını bura sürükləyin və Enter basın: ").strip().strip('"')
 
-    if args.compare_green:
-        args.only_green = True
     ids = read_ids(args.excel, args.sheet, args.unique, args.only_green)
     if args.compare:
         ids, n2 = common_ids(ids, args.compare, args.compare_green)
