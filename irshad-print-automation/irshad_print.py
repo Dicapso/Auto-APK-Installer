@@ -260,13 +260,23 @@ def clear_site_cookies(context, page):
     cdp.detach()
 
 
-def common_ids(items, other_path, other_green=False):
-    """items-dən yalnız ikinci Excel-də də olan ID-lər (sıra və nüsxə sayı birinci fayldan).
+def compare_counts(other_path, other_green=False):
+    """İkinci Excel: {ID: nüsxə sayı} (eyni ID bir neçə dəfədirsə, ilk sətirdəki say)."""
+    return {pid: copies for _, pid, copies in read_ids(other_path, unique=True, only_green=other_green)}
 
-    other_green: ikinci faylda da yalnız yaşıl xanalar nəzərə alınır.
+
+def intersect(items, other):
+    """items-dən yalnız ikinci faylda (other: {ID: say}) olanlar.
+
+    Sıra və vərəq birinci fayldan, nüsxə sayı İKİNCİ fayldan götürülür.
     """
-    other = {pid for _, pid, _ in read_ids(other_path, only_green=other_green)}
-    return [it for it in items if it[1] in other], len(other)
+    return [(sheet, pid, other[pid]) for sheet, pid, _ in items if pid in other]
+
+
+def common_ids(items, other_path, other_green=False):
+    """other_green: ikinci faylda yalnız yaşıl xanalar nəzərə alınır."""
+    other = compare_counts(other_path, other_green)
+    return intersect(items, other), len(other)
 
 
 DATE_RE = re.compile(r"^\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})\s*$")

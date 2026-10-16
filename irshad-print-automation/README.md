@@ -46,7 +46,7 @@ faylını verin (Python lazım deyil). Exe-ni iki dəfə klikləyin və ya Excel
 yanında yaranır — bunları paylaşmayın.
 
 **Müqayisə:** ikinci Excel seçilsə, yalnız hər iki faylda olan ID-lər çapa verilir
-(sıra, vərəq/yaşıl filtr və nüsxə sayı birinci fayldan). "Ortaq ID-lərdən 2-ci faylda
+(sıra və vərəq/yaşıl filtr birinci fayldan, **nüsxə sayı ikinci fayldan**). "Ortaq ID-lərdən 2-ci faylda
 yaşıl olanlar" açarı ilə ortaq ID-lərdən yalnız 2-ci faylda yaşıl rəngli olanlar seçilir. **Giriş:** `credentials.txt`
 varsa avtomatik; yoxdursa açılan brauzerdə özünüz giriş edirsiniz, proqram gözləyir.
 Endirim müddətini saytda özünüz seçirsiniz.

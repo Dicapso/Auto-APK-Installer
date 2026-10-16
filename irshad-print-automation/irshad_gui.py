@@ -82,7 +82,7 @@ class App(ctk.CTk):
         self.worker = None
         self.sheet_vars = {}
         self.compare_path = None
-        self.compare_ids = set()
+        self.compare_ids = {}  # {ID: nüsxə sayı} — ikinci fayldan
 
         self._build()
         if excel_path:
@@ -122,7 +122,7 @@ class App(ctk.CTk):
         self.only_green = ctk.CTkSwitch(card.body, text="Yalnız yaşıl rəngli xanalar", progress_color="#22c55e",
                                         command=self._on_green)
         self.only_green.pack(anchor="w", pady=(8, 0))
-        ctk.CTkLabel(card.body, text="Nüsxə sayı: Excel-də ID-nin yanındakı rəqəm (məs. 2, 3); yoxdursa 1",
+        ctk.CTkLabel(card.body, text="Nüsxə sayı: ID-nin yanındakı rəqəm (məs. 2, 3); yoxdursa 1. Müqayisədə — 2-ci fayldan",
                      text_color=TEXT_MUTED, anchor="w", font=ctk.CTkFont(size=11)).pack(fill="x", pady=(6, 0))
 
         # Vərəqlər
@@ -232,8 +232,7 @@ class App(ctk.CTk):
 
     def _load_compare_ids(self):
         try:
-            self.compare_ids = {pid for _, pid, _ in
-                                core.read_ids(self.compare_path, only_green=bool(self.compare_green.get()))}
+            self.compare_ids = core.compare_counts(self.compare_path, bool(self.compare_green.get()))
         except Exception as e:
             messagebox.showerror("Xəta", f"Excel faylı oxunmadı:\n{e}")
             self._clear_compare()
@@ -246,7 +245,7 @@ class App(ctk.CTk):
             self._load_compare_ids()
 
     def _clear_compare(self):
-        self.compare_path, self.compare_ids = None, set()
+        self.compare_path, self.compare_ids = None, {}
         self._set_entry(self.compare_entry, "")
         self.compare_info.configure(text="Seçilsə, yalnız HƏR İKİ faylda olan ID-lər çapa verilir")
         self._refresh_count()
@@ -268,7 +267,7 @@ class App(ctk.CTk):
     def _selected_ids(self):
         items = self._first_file_ids()
         if self.compare_path:
-            items = [it for it in items if it[1] in self.compare_ids]
+            items = core.intersect(items, self.compare_ids)  # nüsxə sayı 2-ci fayldan
         return items
 
     def _refresh_count(self):
